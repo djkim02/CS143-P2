@@ -23,6 +23,7 @@ class BTLeafNode {
     // Maximum number of entries that a leaf node can have.
     static const int MAX_LEAF_ENTRIES = (PageFile::PAGE_SIZE - sizeof(PageId)) / LEAF_ENTRY_SIZE;
 
+    // Constructor for BTLeafNode();
     BTLeafNode();
 
    /**
@@ -114,6 +115,7 @@ class BTLeafNode {
     int keyCount;
     // Memory address of PageId
     PageId* pageIdStart;
+    // Struct to store an entry
     struct Entry
     {
         RecordId rid;
@@ -129,6 +131,12 @@ class BTLeafNode {
  */
 class BTNonLeafNode {
   public:
+    // Size of one leaf entry. RecordId and key are stored
+    static const int NON_LEAF_ENTRY_SIZE = sizeof(PageId) + sizeof(int);
+    // Maximum number of entries that a leaf node can have.
+    static const int MAX_NON_LEAF_ENTRIES = (PageFile::PAGE_SIZE - sizeof(PageId)) / NON_LEAF_ENTRY_SIZE;
+    // Constructor for BTNonLeafNode();
+    BTNonLeafNode();
    /**
     * Insert a (key, pid) pair to the node.
     * Remember that all keys inside a B+tree node should be kept sorted.
@@ -193,12 +201,21 @@ class BTNonLeafNode {
     */
     RC write(PageId pid, PageFile& pf);
 
+    int insertPosition(int key);
+
   private:
    /**
     * The main memory buffer for loading the content of the disk page 
     * that contains the node.
     */
     char buffer[PageFile::PAGE_SIZE];
+    int keyCount;
+    struct Entry
+    {
+        PageId pid;
+        int key;
+    };
+    Entry* entryStart;
 }; 
 
 #endif /* BTREENODE_H */
