@@ -18,6 +18,13 @@
  */
 class BTLeafNode {
   public:
+    // Size of one leaf entry. RecordId and key are stored
+    static const int LEAF_ENTRY_SIZE = sizeof(RecordId) + sizeof(int);
+    // Maximum number of entries that a leaf node can have.
+    static const int MAX_LEAF_ENTRIES = (PageFile::PAGE_SIZE - sizeof(PageId)) / LEAF_ENTRY_SIZE;
+
+    BTLeafNode();
+
    /**
     * Insert the (key, rid) pair to the node.
     * Remember that all keys inside a B+tree node should be kept sorted.
@@ -104,7 +111,17 @@ class BTLeafNode {
     * that contains the node.
     */
     char buffer[PageFile::PAGE_SIZE];
-}; 
+    int keyCount;
+    // Memory address of PageId
+    PageId* pageIdStart;
+    struct Entry
+    {
+        RecordId rid;
+        int key;
+    };
+    // Memory address of where Entry starts
+    Entry* entryStart;
+};
 
 
 /**
