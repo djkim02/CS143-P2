@@ -1,4 +1,6 @@
 #include "BTreeNode.h"
+#include <math.h>
+#include <string.h>
 
 using namespace std;
 
@@ -38,10 +40,23 @@ RC BTLeafNode::write(PageId pid, PageFile& pf)
  * Return the number of keys stored in the node.
  * @return the number of keys in the node
  */
-int BTLeafNode::getKeyCount()
+RC BTLeafNode::getKeyCount()
 {
 	return keyCount;
 }
+
+/**
+ * set the number of keys stored in the node.
+ * @return 0 if successful. Return an error code if the number is of invalid size for the node
+ */
+RC BTLeafNode::setKeyCount(int number)
+{
+	if (number < 0 || number > MAX_LEAF_ENTRIES)
+		return RC_INVALID_CURSOR;
+	keyCount = number;
+	return 0;
+}
+
 
 /*
  * Insert a (key, rid) pair to the node.
@@ -102,18 +117,55 @@ RC BTLeafNode::insert(int key, const RecordId& rid)
  */
 RC BTLeafNode::insertAndSplit(int key, const RecordId& rid, 
                               BTLeafNode& sibling, int& siblingKey)
-{ return 0; }
+{ 
+	if (keyCount < MAX_LEAF_ENTRIES)
+		return RC_INVALID_CURSOR; // node is not full, does not need to be split
+	if (sibling.getKeyCount() != 0)
+		return RC_INVALID_CURSOR; // sibling node must be empty
+	int eid;
+	locate(key, eid); // find relative position of where our insertion should be
+	bool insertIntoCurrent = false;
+	double halfwayEntry = ((double) (keyCount-1)) /2.0;
+	if (((double) eid) < halfwayEntry) // insert into current node
+	{
+		keyCount = (int) floor(((double) keyCount)/2.0);
+		insertIntoCurrent = true;
+	}
+	else // insert into sibling node
+	{
+		keyCount = (int) ceil(((double) keyCount)/2.0);
+	}
+	// copy half of our values into sibling node
+	sibling.setKeyCount(MAX_LEAF_ENTRIES - keyCount);
+	memcpy((Entry*)sibling.getEntryStart(), entryStart + keyCount, sibling.getKeyCount() * sizeof(Entry) );
+	sibling.setNextNodePtr(getNextNodePtr());
+	setNextNodePtr(*sibling.getPageIDStart());
+	if (insertIntoCurrent)
+	{
+		if (insert(key, rid) == RC_NODE_FULL)
+			return RC_NODE_FULL;
+	}
+	else
+	{
+		if (sibling.insert(key, rid) == RC_NODE_FULL)
+			return RC_NODE_FULL;
+	}
+	siblingKey = ((Entry*)sibling.getEntryStart())->key; // needs to be used to set parent node pointer
+	return 0;
+}
 
 /**
  * If searchKey exists in the node, set eid to the index entry
  * with searchKey and return 0. If not, set eid to the index entry
- * immediately after the largest index key that is smaller than searchKey,
+ * of the largest index key that is smaller than searchKey,
  * and return the error code RC_NO_SUCH_RECORD.
  * Remember that keys inside a B+tree node are always kept sorted.
  * @param searchKey[IN] the key to search for.
  * @param eid[OUT] the index entry number with searchKey or immediately
                    behind the largest key smaller than searchKey.
  * @return 0 if searchKey is found. Otherwise return an error code.
+ * EXAMPLE: If Node is [14|15|17|19|22] and you're trying to locate 18,
+ * the eid[OUT] will be set to 17's eid
  */
 RC BTLeafNode::locate(int searchKey, int& eid)
 {
@@ -168,6 +220,27 @@ RC BTLeafNode::setNextNodePtr(PageId pid)
 	return 0;
 }
 
+
+/*
+ * get a void pointer (needs to be converted) to the start of the entries in the node
+ */
+void* BTLeafNode::getEntryStart()
+{
+	return (void*) entryStart;
+}
+/*
+ * Get a pointer to the start of the node
+ */
+PageId* BTLeafNode::getPageIDStart()
+{
+	return pageIdStart;
+}
+
+
+
+
+// START: BTNONLeafNode
+
 /*
  * Read the content of the node from the page pid in the PageFile pf.
  * @param pid[IN] the PageId to read
@@ -201,9 +274,21 @@ RC BTNonLeafNode::write(PageId pid, PageFile& pf)
  * Return the number of keys stored in the node.
  * @return the number of keys in the node
  */
-int BTNonLeafNode::getKeyCount()
+RC BTNonLeafNode::getKeyCount()
 {
 	return keyCount;
+}
+
+/**
+ * set the number of keys stored in the node.
+ * @return 0 if successful. Return an error code if the number is of invalid size for the node
+ */
+RC BTNonLeafNode::setKeyCount(int number)
+{
+	if (number < 0 || number > MAX_NON_LEAF_ENTRIES)
+		return RC_INVALID_CURSOR;
+	keyCount = number;
+	return 0;
 }
 
 /*
@@ -263,7 +348,39 @@ RC BTNonLeafNode::insert(int key, PageId pid)
  * @return 0 if successful. Return an error code if there is an error.
  */
 RC BTNonLeafNode::insertAndSplit(int key, PageId pid, BTNonLeafNode& sibling, int& midKey)
-{ return 0; }
+{ 
+	if (keyCount < MAX_NON_LEAF_ENTRIES)
+		return RC_INVALID_CURSOR; // node is not full, does not need to be split
+	if (sibling.getKeyCount() != 0)
+		return RC_INVALID_CURSOR; // sibling node must be empty
+	int pos = insertPosition(key); // find relative position of where our insertion should be
+	bool insertIntoCurrent = false;
+	double halfwayEntry = ((double) (keyCount-1)) /2.0;
+	if (((double) pos) < halfwayEntry) // insert into current node
+	{
+		keyCount = (int) floor(((double) keyCount)/2.0);
+		insertIntoCurrent = true;
+	}
+	else // insert into sibling node
+	{
+		keyCount = (int) ceil(((double) keyCount)/2.0);
+	}
+	// copy half of our values into sibling node
+	sibling.setKeyCount(MAX_NON_LEAF_ENTRIES - keyCount);
+	memcpy((Entry*)sibling.getEntryStart(), entryStart + keyCount, sibling.getKeyCount() * sizeof(Entry) );
+	if (insertIntoCurrent)
+	{
+		if (insert(key, pid) == RC_NODE_FULL)
+			return RC_NODE_FULL;
+	}
+	else
+	{
+		if (sibling.insert(key, pid) == RC_NODE_FULL)
+			return RC_NODE_FULL;
+	}
+	midKey = ((Entry*)sibling.getEntryStart())->key; // needs to be used to set parent node pointer
+	return 0;
+}
 
 /*
  * Given the searchKey, find the child-node pointer to follow and
@@ -287,12 +404,13 @@ RC BTNonLeafNode::locateChildPtr(int searchKey, PageId& pid)
 	return 0;
 }
 
+// return the position of the largest key that is smaller than key[IN]
 int BTNonLeafNode::insertPosition(int key)
 {
 	Entry* entry = entryStart;
 	for (int i = 0; i < keyCount; i++, entry++)
 	{
-		if (entry->key < key)
+		if (key < entry->key)
 			return i;
 	}
 	return keyCount;
@@ -316,4 +434,12 @@ RC BTNonLeafNode::initializeRoot(PageId pid1, int key, PageId pid2)
 	// insert pid
 	entry->pid = pid2;
 	return 0;
+}
+
+/*
+ * get a void pointer (needs to be converted) to the start of the entries in the node
+ */
+void* BTNonLeafNode::getEntryStart()
+{
+  	return (void*) entryStart;
 }

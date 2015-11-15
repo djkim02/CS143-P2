@@ -89,7 +89,23 @@ class BTLeafNode {
     * @return the number of keys in the node
     */
     int getKeyCount();
+
+    /**
+    * set the number of keys stored in the node.
+    * @return 0 if successful. Return an error code if the number is of invalid size for the node
+    */
+    RC setKeyCount(int number);
  
+    /*
+    * get a void pointer (needs to be converted) to the start of the entries in the node
+    */
+    void* getEntryStart();
+
+    /*
+    * Get a pointer to the start of the node
+    */
+    PageId* getPageIDStart();
+
    /**
     * Read the content of the node from the page pid in the PageFile pf.
     * @param pid[IN] the PageId to read
@@ -184,6 +200,17 @@ class BTNonLeafNode {
     * @return the number of keys in the node
     */
     int getKeyCount();
+
+    /**
+    * set the number of keys stored in the node.
+    * @return 0 if successful. Return an error code if the number is of invalid size for the node
+    */
+    RC setKeyCount(int number);
+
+    /*
+    * get a void pointer (needs to be converted) to the start of the entries in the node
+    */
+    void* getEntryStart();
 
    /**
     * Read the content of the node from the page pid in the PageFile pf.
