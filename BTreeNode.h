@@ -122,6 +122,10 @@ class BTLeafNode {
     */
     RC write(PageId pid, PageFile& pf);
 
+    /* Print the contents of the nodes for debugging
+    */
+    void printNode();
+
   private:
    /**
     * The main memory buffer for loading the content of the disk page 
@@ -229,6 +233,10 @@ class BTNonLeafNode {
     RC write(PageId pid, PageFile& pf);
 
     int insertPosition(int key);
+
+    /* Print the contents of the nodes for debugging
+    */
+    void printNode();
 
   private:
    /**

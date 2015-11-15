@@ -1,6 +1,7 @@
 #include "BTreeNode.h"
 #include <math.h>
 #include <string.h>
+#include <iostream>
 
 using namespace std;
 
@@ -236,6 +237,22 @@ PageId* BTLeafNode::getPageIDStart()
 	return pageIdStart;
 }
 
+/* Print the contents of the nodes for debugging
+ */
+void BTLeafNode::printNode()
+{
+	Entry* entry = entryStart;
+	cout << "[pageId|pid,sid,key|...|pid,sid,key]" << endl;
+	cout << "[" << *pageIdStart << "|";
+	for (int i = 0; i < keyCount; i++, entry++)
+	{
+		cout << (entry->rid).pid << "," << (entry->rid).sid << "," << entry->key;
+		if (i+1 != keyCount)
+			cout << "|";
+	}
+	cout << "]" << endl;
+}
+
 
 
 
@@ -442,4 +459,18 @@ RC BTNonLeafNode::initializeRoot(PageId pid1, int key, PageId pid2)
 void* BTNonLeafNode::getEntryStart()
 {
   	return (void*) entryStart;
+}
+
+/* Print the contents of the nodes for debugging
+ */
+void BTNonLeafNode::printNode()
+{
+	Entry* entry = entryStart;
+	cout << "[pageId,key|...|pageId]" << endl;
+	cout << "[";
+	for (int i = 0; i < keyCount; i++, entry++)
+	{
+		cout << entry->pid << "," << entry->key << "|";
+	}
+	cout << entry->pid << "]" << endl;
 }
