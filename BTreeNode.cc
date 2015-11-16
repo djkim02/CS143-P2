@@ -373,7 +373,7 @@ RC BTNonLeafNode::insertAndSplit(int key, PageId pid, BTNonLeafNode& sibling, in
 	int pos = insertPosition(key); // find relative position of where our insertion should be
 	bool insertIntoCurrent = false;
 	double halfwayEntry = ((double) (keyCount-1)) /2.0;
-	if (((double) pos) < halfwayEntry) // insert into current node
+	if (((double) pos) <= halfwayEntry) // insert into current node
 	{
 		keyCount = (int) floor(((double) keyCount)/2.0);
 		insertIntoCurrent = true;
