@@ -384,18 +384,25 @@ RC BTNonLeafNode::insertAndSplit(int key, PageId pid, BTNonLeafNode& sibling, in
 	}
 	// copy half of our values into sibling node
 	sibling.setKeyCount(MAX_NON_LEAF_ENTRIES - keyCount);
-	memcpy((Entry*)sibling.getEntryStart(), entryStart + keyCount, sibling.getKeyCount() * sizeof(Entry) );
+	memcpy((Entry*)sibling.getEntryStart(), entryStart + keyCount, sibling.getKeyCount() * sizeof(Entry) + sizeof(PageId) );
 	if (insertIntoCurrent)
 	{
 		if (insert(key, pid) == RC_NODE_FULL)
 			return RC_NODE_FULL;
+		midKey = (entryStart+keyCount-1)->key; // needs to be moved up to parent node
+		keyCount--;	// delete last entry
 	}
 	else
 	{
 		if (sibling.insert(key, pid) == RC_NODE_FULL)
 			return RC_NODE_FULL;
+		midKey = ((Entry*)sibling.getEntryStart())->key; // needs to be moved up to parent node
+		memcpy(entryStart+keyCount, (Entry*)sibling.getEntryStart(), sizeof(PageId)); // copy the PageId from midKey
+		sibling.setKeyCount(sibling.getKeyCount()-1);
+		// shift all entries to the left one entry to overwrite midKey
+		memmove((Entry*)sibling.getEntryStart(), ((Entry*)sibling.getEntryStart())+1, sibling.getKeyCount() * sizeof(Entry) + sizeof(PageId));
 	}
-	midKey = ((Entry*)sibling.getEntryStart())->key; // needs to be used to set parent node pointer
+	
 	return 0;
 }
 
