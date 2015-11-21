@@ -137,4 +137,37 @@ RC BTreeIndex::locate(int searchKey, IndexCursor& cursor)
 RC BTreeIndex::readForward(IndexCursor& cursor, int& key, RecordId& rid)
 {
     BTLeafNode leafNode;
+    PageId pid = cursor.pid;
+    int eid = cursor.eid;
+
+    // read our leaf node from PageFile
+    RC leafRC = leafNode.read(pid, pf);
+
+    // if read error, return the error code
+    if (leafRC != 0)
+    	return leafRC;
+
+    // read the entry from our leaf node
+    leafRC = lf.readEntry(eid, key, rid);
+
+    // if readEntry error, return the error code
+    if (leafRC != 0)
+    	return leafRC;
+
+    // Move the cursor to the next entry
+    eid++;
+
+    // if the one that we just the last element of the node
+    if (eid >= BTLeafNode::MAX_LEAF_ENTRIES)
+    {
+    	// move on to the next node
+    	cursor.pid = leafNode.getNextNodePtr();
+
+    	// set eid to 0, which denotes the first entry of a node
+    	eid = 0;
+    }
+
+    // update cursor's eid
+    cursor.eid = eid;
+    return 0;
 }
