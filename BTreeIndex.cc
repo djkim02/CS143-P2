@@ -18,6 +18,7 @@ using namespace std;
 BTreeIndex::BTreeIndex()
 {
     rootPid = -1;
+    treeHeight = 0;
 }
 
 /*
@@ -29,6 +30,17 @@ BTreeIndex::BTreeIndex()
  */
 RC BTreeIndex::open(const string& indexname, char mode)
 {
+    RC rc = pf.open(indexname, mode);
+
+    if (status != 0)
+    	return status;
+
+    if (pf.endPid() != 0)
+    {
+    	BTLeafNode node;
+    	return node.write(0, pf);
+    }
+
     return 0;
 }
 
@@ -38,7 +50,8 @@ RC BTreeIndex::open(const string& indexname, char mode)
  */
 RC BTreeIndex::close()
 {
-    return 0;
+    rootPid = INVALID_PID;
+    return pf.close();
 }
 
 /*
@@ -72,6 +85,56 @@ RC BTreeIndex::insert(int key, const RecordId& rid)
  */
 RC BTreeIndex::locate(int searchKey, IndexCursor& cursor)
 {
+	BTNonLeafNode nonLeafNode;
+	PageId readPid = rootPid;
+	int height = treeHeight;
+
+	// processing non-leaf nodes
+	while (height > 1)
+	{
+		// read the node from Pagefile
+		RC nonLeafRC = nonLeafNode.read(readPid, pf);
+
+		// if read error, return the error code
+		if (nonLeafRC != 0)
+			return nonLeafRC;
+
+		// locate the next node that we have to examine
+		nonLeafRC = nonLeafNode.locateChildPtr(searchKey, readPid);
+
+		// if locate fails, return the error code
+		if (nonLeafRC != 0)
+			return nonLeafRC;
+
+		// examine the next level of the tree
+		currentHeight--;
+	}
+
+	// if we reached here, we have gotten to our leaf node
+	BTLeafNode leafNode;
+
+	// read the node from Pagefile
+	RC leafRC = leafNode.read(readPid, pf);
+
+	// if read error, return the error code
+	if (leafRC != 0)
+		return leafRC;
+
+	// Find the entry whose key value is larger than or equal to searchKey
+	// We have to add 1 because our locate function works differently
+	int eid;
+
+	// Try to locate the searchKey
+	RC locateRC = leafNode.locate(searchKey, eid);
+
+	// if locate error, return the error code
+	if (locateRC != 0)
+		return locateRC;
+
+	// set the cursor and return
+	cursor.pid = readPid;
+	cursor.eid = eid;
+
     return 0;
 }
 
