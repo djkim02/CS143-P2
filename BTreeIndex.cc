@@ -30,17 +30,6 @@ BTreeIndex::BTreeIndex()
  */
 RC BTreeIndex::open(const string& indexname, char mode)
 {
-    RC rc = pf.open(indexname, mode);
-
-    if (status != 0)
-    	return status;
-
-    if (pf.endPid() != 0)
-    {
-    	BTLeafNode node;
-    	return node.write(0, pf);
-    }
-
     return 0;
 }
 
@@ -50,8 +39,7 @@ RC BTreeIndex::open(const string& indexname, char mode)
  */
 RC BTreeIndex::close()
 {
-    rootPid = INVALID_PID;
-    return pf.close();
+	return 0;
 }
 
 /*
@@ -107,7 +95,7 @@ RC BTreeIndex::locate(int searchKey, IndexCursor& cursor)
 			return nonLeafRC;
 
 		// examine the next level of the tree
-		currentHeight--;
+		height--;
 	}
 
 	// if we reached here, we have gotten to our leaf node
@@ -148,5 +136,5 @@ RC BTreeIndex::locate(int searchKey, IndexCursor& cursor)
  */
 RC BTreeIndex::readForward(IndexCursor& cursor, int& key, RecordId& rid)
 {
-    return 0;
+    BTLeafNode leafNode;
 }
