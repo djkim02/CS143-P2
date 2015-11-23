@@ -140,7 +140,7 @@ RC BTLeafNode::insertAndSplit(int key, const RecordId& rid,
 	sibling.setKeyCount(MAX_LEAF_ENTRIES - keyCount);
 	memcpy((Entry*)sibling.getEntryStart(), entryStart + keyCount, sibling.getKeyCount() * sizeof(Entry) );
 	sibling.setNextNodePtr(getNextNodePtr());
-	setNextNodePtr(*sibling.getPageIDStart());
+	// current node's nextPointer needs to be set in the function that calls this during sibling node creation
 	if (insertIntoCurrent)
 	{
 		if (insert(key, rid) == RC_NODE_FULL)

@@ -9,6 +9,7 @@
  
 #include "BTreeIndex.h"
 #include "BTreeNode.h"
+#include <stack>
 
 using namespace std;
 
@@ -50,6 +51,129 @@ RC BTreeIndex::close()
  */
 RC BTreeIndex::insert(int key, const RecordId& rid)
 {
+	if (treeHeight == 0)
+	{
+		BTLeafNode first;
+		rootPid = pf.endPid()-1;
+		first.insert(key, rid);
+		RC errorMsg = first.write(pf.endPid(), pf);
+		if (errorMsg != 0)
+			return errorMsg;
+		treeHeight++;
+		return 0;
+	}
+
+	BTNonLeafNode nonLeafNode;
+	PageId readPid = rootPid;
+	stack<PageId> pids;		// used to find parent pids in the event of splits
+	int height = treeHeight;
+	// processing non-leaf nodes
+	while (height > 1)
+	{
+		// read the node from Pagefile
+		RC nonLeafRC = nonLeafNode.read(readPid, pf);
+
+		// if read error, return the error code
+		if (nonLeafRC != 0)
+			return nonLeafRC;
+
+		// save the parent pid in case of a node split
+		pids.push(readPid);
+
+		// locate the next node that we have to examine
+		nonLeafRC = nonLeafNode.locateChildPtr(key, readPid);
+
+		// if locate fails, return the error code
+		if (nonLeafRC != 0)
+			return nonLeafRC;
+
+		// examine the next level of the tree
+		height--;
+	}
+
+	// if we reached here, we have gotten to our leaf node
+	BTLeafNode leafNode;
+
+	// read the node from Pagefile
+	RC leafRC = leafNode.read(readPid, pf);
+
+	// if read error, return the error code
+	if (leafRC != 0)
+		return leafRC;
+
+	if (leafNode.insert(key, rid) != RC_NODE_FULL)
+		return leafNode.write(readPid, pf);
+
+	// create new sibling node
+	BTLeafNode sibling;
+	int siblingKey;
+
+	RC errorMsg = leafNode.insertAndSplit(key, rid, sibling, siblingKey);
+	if (errorMsg != 0)
+		return errorMsg;
+
+	// set next pointer to new sibling's pid
+	errorMsg = leafNode.setNextNodePtr(pf.endPid());
+	if (errorMsg != 0)
+		return errorMsg;
+
+	// save updated node in memory
+	errorMsg = leafNode.write(readPid, pf);
+	if (errorMsg != 0)
+		return errorMsg;
+
+	// save new node in memory
+	errorMsg = sibling.write(pf.endPid(), pf);
+	if (errorMsg != 0)
+		return errorMsg;
+
+
+	int newKey = siblingKey;
+	// continually try to insert into parent non-leaf nodes and split if overflow
+	while (!pids.empty())
+	{
+		BTNonLeafNode parent;
+
+		// read the node from Pagefile
+		PageId parentPid = pids.top();
+		pids.pop();
+		errorMsg = parent.read(parentPid, pf);
+		if (errorMsg != 0)
+			return errorMsg;
+
+		if (parent.insert(newKey, pf.endPid()-1) != RC_NODE_FULL)
+			return parent.write(parentPid, pf);
+
+		BTNonLeafNode nonLeafSibling;
+		int midKey;
+
+		errorMsg = parent.insertAndSplit(newKey, pf.endPid()-1, nonLeafSibling, midKey);
+		if (errorMsg != 0)
+			return errorMsg;
+
+		// save updated node in memory
+		errorMsg = parent.write(parentPid, pf);
+		if (errorMsg != 0)
+			return errorMsg;
+
+		// save new node in memory
+		errorMsg = nonLeafSibling.write(pf.endPid(), pf);
+		if (errorMsg != 0)
+			return errorMsg;
+
+		newKey = midKey;
+	}
+
+	// if we got here, we've overflowed the root node as well
+	BTNonLeafNode newRoot;
+	errorMsg = newRoot.initializeRoot(rootPid, newKey, pf.endPid()-1);
+	if (errorMsg != 0)
+		return errorMsg;
+	rootPid = pf.endPid();
+	errorMsg = newRoot.write(pf.endPid(), pf);
+	if (errorMsg != 0)
+		return errorMsg;
+	treeHeight++;
     return 0;
 }
 
@@ -148,7 +272,7 @@ RC BTreeIndex::readForward(IndexCursor& cursor, int& key, RecordId& rid)
     	return leafRC;
 
     // read the entry from our leaf node
-    leafRC = lf.readEntry(eid, key, rid);
+    leafRC = leafNode.readEntry(eid, key, rid);
 
     // if readEntry error, return the error code
     if (leafRC != 0)
