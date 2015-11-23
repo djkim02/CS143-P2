@@ -35,6 +35,9 @@ class BTreeIndex {
  public:
   BTreeIndex();
 
+  // pid value where we store treeHeight and our rootPid
+  static const int BTREE_BOOT_UP_PID = 0;
+
   /**
    * Open the index file in read or write mode.
    * Under 'w' mode, the index file should be created if it does not exist.
@@ -97,6 +100,7 @@ class BTreeIndex {
   /// this class is destructed. Make sure to store the values of the two 
   /// variables in disk, so that they can be reconstructed when the index
   /// is opened again later.
+  char buffer[PageFile::PAGE_SIZE];
 };
 
 #endif /* BTREEINDEX_H */

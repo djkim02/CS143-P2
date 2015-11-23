@@ -9,6 +9,7 @@
  
 #include "BTreeIndex.h"
 #include "BTreeNode.h"
+#include <string.h>
 #include <stack>
 
 using namespace std;
@@ -31,7 +32,28 @@ BTreeIndex::BTreeIndex()
  */
 RC BTreeIndex::open(const string& indexname, char mode)
 {
-    return 0;
+	RC errorMsg = pf.open(indexname, mode);
+	if (errorMsg != 0)
+		return errorMsg;
+
+	// check if our PageFile is empty
+	if (pf.endPid() == 0)
+	{
+		// store our default values to populate first pid in PageFile
+		memcpy(buffer, &rootPid, sizeof(PageId));
+		memcpy(buffer+sizeof(PageId), &treeHeight, sizeof(int));
+		errorMsg = pf.write(BTREE_BOOT_UP_PID, buffer);
+		if (errorMsg != 0)
+			return errorMsg;
+		return 0;
+	}
+	// otherwise read the content from disk
+	errorMsg = pf.read(BTREE_BOOT_UP_PID, buffer);
+	if (errorMsg != 0)
+		return errorMsg;
+	memcpy(&rootPid, buffer, sizeof(PageId));
+	memcpy(&treeHeight, buffer+sizeof(PageId), sizeof(int));
+	return 0;
 }
 
 /*
@@ -40,7 +62,13 @@ RC BTreeIndex::open(const string& indexname, char mode)
  */
 RC BTreeIndex::close()
 {
-	return 0;
+	// save our values to disk before closing
+	memcpy(buffer, &rootPid, sizeof(PageId));
+	memcpy(buffer+sizeof(PageId), &treeHeight, sizeof(int));
+	RC errorMsg = pf.write(BTREE_BOOT_UP_PID, buffer);
+	if (errorMsg != 0)
+		return errorMsg;
+	return pf.close();
 }
 
 /*
@@ -54,9 +82,9 @@ RC BTreeIndex::insert(int key, const RecordId& rid)
 	if (treeHeight == 0)
 	{
 		BTLeafNode first;
-		rootPid = pf.endPid()-1;
+		rootPid = BTREE_BOOT_UP_PID+1;	// BTREE_BOOT_UP_PID is used to store rootPid and treeHeight
 		first.insert(key, rid);
-		RC errorMsg = first.write(pf.endPid(), pf);
+		RC errorMsg = first.write(BTREE_BOOT_UP_PID+1, pf);
 		if (errorMsg != 0)
 			return errorMsg;
 		treeHeight++;
