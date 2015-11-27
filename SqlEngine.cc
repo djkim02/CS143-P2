@@ -135,26 +135,56 @@ RC SqlEngine::load(const string& table, const string& loadfile, bool index)
   RecordFile* recordFile = new RecordFile(table + ".tbl", 'w');
   ifstream fileName(loadfile.c_str());
   string line;
-  while (getline(fileName, line))
+
+  if (index)
   {
-    int key;
-    string value;
-    RecordId recordId;
+    BTreeIndex btree;
+    btree.open(table + ".idx", 'w');
 
-    if (parseLoadLine(line, key, value) == 0)
+    while (getline(fileName, line))
     {
-      if (recordFile->append(key, value, recordId) == 0)
+      if (parseLoadLine(line, key, value) == 0)
       {
-
+        if (recordFile->append(key, value, recordId) != 0)
+        {
+          return RC_INVALID_ATTRIBUTE;
+        }
+        if (btree.insert(key, rid) != 0)
+        {
+          return RC_FILE_WRITE_FAILED;
+        }
       }
       else
       {
         return RC_INVALID_ATTRIBUTE;
       }
     }
-    else
+    
+    tree.close();
+  }
+  else
+  {
+    while (getline(fileName, line))
     {
-      return RC_INVALID_ATTRIBUTE;
+      int key;
+      string value;
+      RecordId recordId;
+
+      if (parseLoadLine(line, key, value) == 0)
+      {
+        if (recordFile->append(key, value, recordId) == 0)
+        {
+
+        }
+        else
+        {
+          return RC_INVALID_ATTRIBUTE;
+        }
+      }
+      else
+      {
+        return RC_INVALID_ATTRIBUTE;
+      }
     }
   }
 
