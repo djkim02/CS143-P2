@@ -14,6 +14,7 @@
 #include <fstream>
 #include "Bruinbase.h"
 #include "SqlEngine.h"
+#include "BTreeIndex.h"
 
 using namespace std;
 
@@ -135,6 +136,9 @@ RC SqlEngine::load(const string& table, const string& loadfile, bool index)
   RecordFile* recordFile = new RecordFile(table + ".tbl", 'w');
   ifstream fileName(loadfile.c_str());
   string line;
+  int key;
+  string value;
+  RecordId recordId;
 
   if (index)
   {
@@ -149,7 +153,7 @@ RC SqlEngine::load(const string& table, const string& loadfile, bool index)
         {
           return RC_INVALID_ATTRIBUTE;
         }
-        if (btree.insert(key, rid) != 0)
+        if (btree.insert(key, recordId) != 0)
         {
           return RC_FILE_WRITE_FAILED;
         }
@@ -160,16 +164,12 @@ RC SqlEngine::load(const string& table, const string& loadfile, bool index)
       }
     }
     
-    tree.close();
+    btree.close();
   }
   else
   {
     while (getline(fileName, line))
     {
-      int key;
-      string value;
-      RecordId recordId;
-
       if (parseLoadLine(line, key, value) == 0)
       {
         if (recordFile->append(key, value, recordId) == 0)
