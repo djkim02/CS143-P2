@@ -90,6 +90,12 @@ class BTreeIndex {
    * @return error code. 0 if no error
    */
   RC readForward(IndexCursor& cursor, int& key, RecordId& rid);
+
+  /**
+   * @param count[OUT] total number of keys in the BTreeIndex
+   * @return error code. 0 if no error
+   */
+  RC getTotalKeyCount(int& count);
   
  private:
   PageFile pf;         /// the PageFile used to store the actual b+tree in disk

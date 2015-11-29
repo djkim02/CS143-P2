@@ -35,6 +35,9 @@ RC SqlEngine::run(FILE* commandline)
   return 0;
 }
 
+/* We check if the queried table has an index and if so, we check the conditions
+ * to make appropriate optimizations using our B+ Tree search algorithms
+ */
 RC SqlEngine::select(int attr, const string& table, const vector<SelCond>& cond)
 {
   RecordFile rf;   // RecordFile containing the table
@@ -52,78 +55,334 @@ RC SqlEngine::select(int attr, const string& table, const vector<SelCond>& cond)
     return rc;
   }
 
-  // scan the table file from the beginning
-  rid.pid = rid.sid = 0;
-  count = 0;
-  while (rid < rf.endRid()) {
-    // read the tuple
-    if ((rc = rf.read(rid, key, value)) < 0) {
-      fprintf(stderr, "Error: while reading a tuple from table %s\n", table.c_str());
-      goto exit_select;
+  BTreeIndex index;
+  if ((index.open(table + ".idx", 'r')) != 0) {
+    // no index exists for this table so we must
+    // scan the table file from the beginning
+    no_index:
+    rid.pid = rid.sid = 0;
+    count = 0;
+    while (rid < rf.endRid()) {
+      // read the tuple
+      if ((rc = rf.read(rid, key, value)) < 0) {
+        fprintf(stderr, "Error: while reading a tuple from table %s\n", table.c_str());
+        goto exit_select;
+      }
+
+      // check the conditions on the tuple
+      for (unsigned i = 0; i < cond.size(); i++) {
+        // compute the difference between the tuple value and the condition value
+        switch (cond[i].attr) {
+        case 1:
+        	diff = key - atoi(cond[i].value);
+        	break;
+        case 2:
+        	diff = strcmp(value.c_str(), cond[i].value);
+        	break;
+        }
+
+        // skip the tuple if any condition is not met
+        switch (cond[i].comp) {
+          case SelCond::EQ:
+          	if (diff != 0) goto next_tuple;
+          	break;
+          case SelCond::NE:
+          	if (diff == 0) goto next_tuple;
+          	break;
+          case SelCond::GT:
+          	if (diff <= 0) goto next_tuple;
+          	break;
+          case SelCond::LT:
+          	if (diff >= 0) goto next_tuple;
+          	break;
+          case SelCond::GE:
+          	if (diff < 0) goto next_tuple;
+          	break;
+          case SelCond::LE:
+          	if (diff > 0) goto next_tuple;
+          	break;
+        }
+      }
+
+      // the condition is met for the tuple. 
+      // increase matching tuple counter
+      count++;
+
+      // print the tuple 
+      switch (attr) {
+      case 1:  // SELECT key
+        fprintf(stdout, "%d\n", key);
+        break;
+      case 2:  // SELECT value
+        fprintf(stdout, "%s\n", value.c_str());
+        break;
+      case 3:  // SELECT *
+        fprintf(stdout, "%d '%s'\n", key, value.c_str());
+        break;
+      }
+
+      // move to the next tuple
+      next_tuple:
+      ++rid;
     }
 
-    // check the conditions on the tuple
+      // print matching tuple count if "select count(*)"
+    if (attr == 4) {
+      fprintf(stdout, "%d\n", count);
+    }
+    rc = 0;
+  }
+  else {
+    // use the index to speed up searching
+    rid.pid = rid.sid = 0;
+    count = 0;
+    int searchKey = -99999999;
+    int maxKey = 99999999;
+    bool isEqualityComparison = false;
+    bool isReadVal = false;
+    bool isOnlyNotEqualsComparisons = true;
+    bool isOnlyCountStar = false;
+
+    // go through conditions and reduce our searching appropriately
     for (unsigned i = 0; i < cond.size(); i++) {
-      // compute the difference between the tuple value and the condition value
-      switch (cond[i].attr) {
-      case 1:
-	diff = key - atoi(cond[i].value);
-	break;
-      case 2:
-	diff = strcmp(value.c_str(), cond[i].value);
-	break;
+      // set starting point for our key searching based on highest minimum value we can start at
+      if (cond[i].attr == 1 && (cond[i].comp == SelCond::GT || 
+                                cond[i].comp == SelCond::GE)) {
+        if (searchKey < atoi(cond[i].value))
+          searchKey = atoi(cond[i].value);
       }
-
-      // skip the tuple if any condition is not met
-      switch (cond[i].comp) {
-      case SelCond::EQ:
-	if (diff != 0) goto next_tuple;
-	break;
-      case SelCond::NE:
-	if (diff == 0) goto next_tuple;
-	break;
-      case SelCond::GT:
-	if (diff <= 0) goto next_tuple;
-	break;
-      case SelCond::LT:
-	if (diff >= 0) goto next_tuple;
-	break;
-      case SelCond::GE:
-	if (diff < 0) goto next_tuple;
-	break;
-      case SelCond::LE:
-	if (diff > 0) goto next_tuple;
-	break;
+      // set ending point for our key searching based on lowest maximum value we can end at  
+      if (cond[i].attr == 1 && (cond[i].comp == SelCond::LT || 
+                                cond[i].comp == SelCond::LE)) {
+        if (maxKey > atoi(cond[i].value))
+          maxKey = atoi(cond[i].value);
       }
+      // immediately search for this key if there is an equality comparison
+      if (cond[i].attr == 1 && cond[i].comp == SelCond::EQ) {
+        isEqualityComparison = true;
+        searchKey = atoi(cond[i].value);
+        break;
+      }
+      // check if we can ignore checking the value to reduce PageFile reads
+      if (cond[i].attr == 2)
+        isReadVal = true;
+      // check if all our conditions are NOT EQUALS, 
+      // then we should just iterate through all elements without using the index
+      if (cond[i].comp != SelCond::NE)
+        isOnlyNotEqualsComparisons = false;
+    }
+    // check if only count(*) to save from doing unnecessary PageFile reads
+    if (cond.size() == 0 && attr == 4)
+    {
+      isOnlyCountStar = true;
+      isOnlyNotEqualsComparisons = false;
     }
 
-    // the condition is met for the tuple. 
-    // increase matching tuple counter
-    count++;
+    if (isOnlyNotEqualsComparisons && !isEqualityComparison)
+      goto no_index;
 
-    // print the tuple 
-    switch (attr) {
-    case 1:  // SELECT key
-      fprintf(stdout, "%d\n", key);
-      break;
-    case 2:  // SELECT value
-      fprintf(stdout, "%s\n", value.c_str());
-      break;
-    case 3:  // SELECT *
-      fprintf(stdout, "%d '%s'\n", key, value.c_str());
-      break;
+    IndexCursor cursor;
+    index.locate(searchKey, cursor);
+    if (isEqualityComparison)
+    {
+        bool isEqual = true;
+        RC errorMsg = index.readForward(cursor, searchKey, rid);
+        if (errorMsg != 0)
+          return errorMsg;
+        // read the tuple
+        if ((rc = rf.read(rid, searchKey, value)) < 0) {
+          fprintf(stderr, "Error: while reading a tuple from table %s\n", table.c_str());
+          goto exit_select;
+        }
+        // check the conditions on the tuple
+        for (unsigned i = 0; i < cond.size(); i++) {
+          // compute the difference between the tuple value and the condition value
+          switch (cond[i].attr) {
+          case 1:
+            diff = searchKey - atoi(cond[i].value);
+            break;
+          case 2:
+            diff = strcmp(value.c_str(), cond[i].value);
+            break;
+          }
+
+          // skip the search if any condition is not met
+          switch (cond[i].comp) {
+            case SelCond::EQ:
+              if (diff != 0) isEqual = false;
+              break;
+            case SelCond::NE:
+              if (diff == 0) isEqual = false;
+              break;
+            case SelCond::GT:
+              if (diff <= 0) isEqual = false;
+              break;
+            case SelCond::LT:
+              if (diff >= 0) isEqual = false;
+              break;
+            case SelCond::GE:
+              if (diff < 0) isEqual = false;
+              break;
+            case SelCond::LE:
+              if (diff > 0) isEqual = false;
+              break;
+          }
+          if (!isEqual)
+            break;
+        }
+        if (isEqual)
+        {
+          // the conditions are met for the tuple. 
+          // increase matching tuple counter
+          count++;
+
+          // print the tuple 
+          switch (attr) {
+          case 1:  // SELECT key
+            fprintf(stdout, "%d\n", searchKey);
+            break;
+          case 2:  // SELECT value
+            fprintf(stdout, "%s\n", value.c_str());
+            break;
+          case 3:  // SELECT *
+            fprintf(stdout, "%d '%s'\n", searchKey, value.c_str());
+            break;
+          }
+        }
+    }
+    else if (isOnlyCountStar)
+    {
+      RC errorMsg = index.getTotalKeyCount(count);
+      if (errorMsg != 0)
+        return errorMsg;
+    }
+    else if (isReadVal)
+    {
+      while (index.readForward(cursor, searchKey, rid) == 0 && searchKey < maxKey)  {
+        // read the tuple
+        if ((rc = rf.read(rid, searchKey, value)) < 0) {
+          fprintf(stderr, "Error: while reading a tuple from table %s\n", table.c_str());
+          goto exit_select;
+        }
+        // check the conditions on the tuple
+        for (unsigned i = 0; i < cond.size(); i++) {
+          // compute the difference between the tuple value and the condition value
+          switch (cond[i].attr) {
+          case 1:
+            diff = searchKey - atoi(cond[i].value);
+            break;
+          case 2:
+            diff = strcmp(value.c_str(), cond[i].value);
+            break;
+          }
+
+          // skip the tuple if any condition is not met
+          switch (cond[i].comp) {
+            case SelCond::EQ:
+              if (diff != 0) continue;
+              break;
+            case SelCond::NE:
+              if (diff == 0) continue;
+              break;
+            case SelCond::GT:
+              if (diff <= 0) continue;
+              break;
+            case SelCond::LT:
+              if (diff >= 0) continue;
+              break;
+            case SelCond::GE:
+              if (diff < 0) continue;
+              break;
+            case SelCond::LE:
+              if (diff > 0) continue;
+              break;
+          }
+        }
+
+        // the condition is met for the tuple. 
+        // increase matching tuple counter
+        count++;
+
+        // print the tuple 
+        switch (attr) {
+        case 1:  // SELECT key
+          fprintf(stdout, "%d\n", searchKey);
+          break;
+        case 2:  // SELECT value
+          fprintf(stdout, "%s\n", value.c_str());
+          break;
+        case 3:  // SELECT *
+          fprintf(stdout, "%d '%s'\n", searchKey, value.c_str());
+          break;
+        }
+
+      }
+    }
+    else  // don't read values from PageFile unless we have a match
+    {
+      while (index.readForward(cursor, searchKey, rid) == 0 && searchKey < maxKey)  {
+        // check the conditions on the tuple
+        for (unsigned i = 0; i < cond.size(); i++) {
+          // compute the difference between the tuple value and the condition value
+          diff = searchKey - atoi(cond[i].value);
+
+          // skip the tuple if any condition is not met
+          switch (cond[i].comp) {
+            case SelCond::EQ:
+              if (diff != 0) continue;
+              break;
+            case SelCond::NE:
+              if (diff == 0) continue;
+              break;
+            case SelCond::GT:
+              if (diff <= 0) continue;
+              break;
+            case SelCond::LT:
+              if (diff >= 0) continue;
+              break;
+            case SelCond::GE:
+              if (diff < 0) continue;
+              break;
+            case SelCond::LE:
+              if (diff > 0) continue;
+              break;
+          }
+        }
+
+        // the condition is met for the tuple. 
+        // increase matching tuple counter
+        count++;
+
+        // read the tuple
+        if ((rc = rf.read(rid, searchKey, value)) < 0) {
+          fprintf(stderr, "Error: while reading a tuple from table %s\n", table.c_str());
+          goto exit_select;
+        }
+
+        // print the tuple 
+        switch (attr) {
+        case 1:  // SELECT key
+          fprintf(stdout, "%d\n", searchKey);
+          break;
+        case 2:  // SELECT value
+          fprintf(stdout, "%s\n", value.c_str());
+          break;
+        case 3:  // SELECT *
+          fprintf(stdout, "%d '%s'\n", searchKey, value.c_str());
+          break;
+        }
+
+      } 
     }
 
-    // move to the next tuple
-    next_tuple:
-    ++rid;
-  }
+    // print matching tuple count if "select count(*)"
+    if (attr == 4) {
+      fprintf(stdout, "%d\n", count);
+    }
+    rc = 0;
 
-  // print matching tuple count if "select count(*)"
-  if (attr == 4) {
-    fprintf(stdout, "%d\n", count);
+    index.close();
   }
-  rc = 0;
 
   // close the table file and return
   exit_select:

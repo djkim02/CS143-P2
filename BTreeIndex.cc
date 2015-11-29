@@ -323,3 +323,58 @@ RC BTreeIndex::readForward(IndexCursor& cursor, int& key, RecordId& rid)
     cursor.eid = eid;
     return 0;
 }
+
+/**
+  * @param count[OUT] total number of keys in the BTreeIndex
+  * @return error code. 0 if no error
+  */
+RC BTreeIndex::getTotalKeyCount(int& count)
+{
+	int searchKey = -99999999;
+	BTNonLeafNode nonLeafNode;
+	PageId readPid = rootPid;
+	int height = treeHeight;
+	count = 0;
+
+	// processing non-leaf nodes
+	while (height > 1)
+	{
+		// read the node from Pagefile
+		RC nonLeafRC = nonLeafNode.read(readPid, pf);
+
+		// if read error, return the error code
+		if (nonLeafRC != 0)
+			return nonLeafRC;
+
+		// locate the next node that we have to examine
+		nonLeafRC = nonLeafNode.locateChildPtr(searchKey, readPid);
+
+		// if locate fails, return the error code
+		if (nonLeafRC != 0)
+			return nonLeafRC;
+
+		// examine the next level of the tree
+		height--;
+	}
+
+	// if we reached here, we have gotten to our leaf node
+	BTLeafNode leafNode;
+
+	// read the node from Pagefile
+	RC leafRC = leafNode.read(readPid, pf);
+	// if read error, return the error code
+	if (leafRC != 0)
+		return leafRC;
+	count += leafNode.getKeyCount();
+	readPid = leafNode.getNextNodePtr();
+	while (readPid < pf.endPid())
+	{
+		// read the node from Pagefile
+		leafRC = leafNode.read(readPid, pf);
+		// if read error, return the error code
+		if (leafRC != 0)
+			return leafRC;
+		count += leafNode.getKeyCount();
+	}
+	return 0;
+}
