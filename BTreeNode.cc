@@ -10,9 +10,7 @@ using namespace std;
  */
 BTLeafNode::BTLeafNode()
 {
-	keyCount = 0;
-	pageIdStart = (PageId*) buffer;
-	entryStart = (Entry*) (buffer + sizeof(PageId));
+
 }
 
 /*
@@ -41,9 +39,21 @@ RC BTLeafNode::write(PageId pid, PageFile& pf)
  * Return the number of keys stored in the node.
  * @return the number of keys in the node
  */
-RC BTLeafNode::getKeyCount()
+int BTLeafNode::getKeyCount()
 {
-	return keyCount;
+	int entrySize = sizeof(RecordId) + sizeof(int);
+	int count = 0;
+	char* temp = (char*) getEntryStart();
+	for(int i = 0; i <= 1008; i += entrySize)
+	{
+		int key;
+		memcpy(&key, temp, sizeof(int));
+		if (key == 0)
+			break;
+		count++;
+		temp += entrySize;
+	}
+	return count;
 }
 
 /**
@@ -68,30 +78,31 @@ RC BTLeafNode::setKeyCount(int number)
 RC BTLeafNode::insert(int key, const RecordId& rid)
 {
 	// If the node is full, return RC_NODE_FULL
-	if (keyCount >= MAX_LEAF_ENTRIES)
+	if (getKeyCount() >= MAX_LEAF_ENTRIES)
 		return RC_NODE_FULL;
 	int eid;
 	locate(key, eid);
 
 	// When our leaf node is empty, just add the entry at the front
-	if (keyCount == 0)
+	if (getKeyCount() == 0)
 	{
-		entryStart->key = key;
-		entryStart->rid = rid;
+		Entry* entry = (Entry*) getEntryStart();
+		entry->key = key;
+		entry->rid = rid;
 	}
 	// When key is larger than any other elements, we just need to add the entry at the end
-	else if (eid + 1 == keyCount)
+	else if (eid + 1 == getKeyCount())
 	{
-		Entry* entry = entryStart + eid + 1;
+		Entry* entry = (Entry*) getEntryStart() + eid + 1;
 		entry->key = key;
 		entry->rid = rid;
 	}
 	// Otherwise, shift everything to the right then insert the entry
 	else
 	{
-		Entry* entry = entryStart + keyCount;
+		Entry* entry = (Entry*) getEntryStart() + getKeyCount();
 		Entry* prevEntry = entry - 1;
-		Entry* newEntry = entryStart + eid + 1;
+		Entry* newEntry = (Entry*) getEntryStart() + eid + 1;
 		for (; prevEntry >= newEntry; entry--, prevEntry--)
 		{
 			entry->key = prevEntry->key;
@@ -101,8 +112,6 @@ RC BTLeafNode::insert(int key, const RecordId& rid)
 		newEntry->rid = rid;
 	}
 
-	// Update the count of the entries (keys)
-	keyCount++;
 	return 0;
 }
 
@@ -140,9 +149,9 @@ RC BTLeafNode::insertAndSplit(int key, const RecordId& rid,
 	}
 	// copy half of our values into sibling node
 	int siblingKeyCount = (MAX_LEAF_ENTRIES - newKeyCount);
-	memcpy((Entry*)sibling.getEntryStart(), entryStart + newKeyCount, siblingKeyCount * sizeof(Entry) );
+	memcpy((Entry*)sibling.getEntryStart(), getEntryStart() + newKeyCount, siblingKeyCount * sizeof(Entry) );
 	// clear old memory in current node
-	memset(entryStart + newKeyCount, '0', siblingKeyCount * sizeof(Entry));
+	memset(getEntryStart() + newKeyCount, '0', siblingKeyCount * sizeof(Entry));
 	sibling.setNextNodePtr(getNextNodePtr());
 	// current node's nextPointer needs to be set in the function that calls this during sibling node creation
 	if (insertIntoCurrent)
@@ -174,8 +183,8 @@ RC BTLeafNode::insertAndSplit(int key, const RecordId& rid,
  */
 RC BTLeafNode::locate(int searchKey, int& eid)
 {
-	Entry* entry = entryStart;
-	for (eid = 0; eid < keyCount && entry->key < searchKey; eid++, entry++)
+	Entry* entry = (Entry*) getEntryStart();
+	for (eid = 0; eid < getKeyCount() && entry->key < searchKey; eid++, entry++)
 	{
 		if (entry->key == searchKey)
 			return 0;
@@ -193,10 +202,10 @@ RC BTLeafNode::locate(int searchKey, int& eid)
  */
 RC BTLeafNode::readEntry(int eid, int& key, RecordId& rid)
 {
-	if (eid < 0 || eid >= keyCount)
+	if (eid < 0 || eid >= getKeyCount())
 		return RC_INVALID_CURSOR;
 
-	Entry* entry = (Entry*) entryStart;
+	Entry* entry = (Entry*) getEntryStart();
 	entry += eid;
 	key = entry->key;
 	rid = entry->rid;
@@ -210,7 +219,7 @@ RC BTLeafNode::readEntry(int eid, int& key, RecordId& rid)
 PageId BTLeafNode::getNextNodePtr()
 {
 	PageId pid;
-	memcpy(&pid, pageIdStart, sizeof(PageId));
+	memcpy(&pid, buffer, sizeof(PageId));
 	return pid;
 }
 
@@ -221,7 +230,7 @@ PageId BTLeafNode::getNextNodePtr()
  */
 RC BTLeafNode::setNextNodePtr(PageId pid)
 {
-	memcpy(pageIdStart, &pid, sizeof(PageId));
+	memcpy(buffer, &pid, sizeof(PageId));
 	return 0;
 }
 
@@ -229,29 +238,29 @@ RC BTLeafNode::setNextNodePtr(PageId pid)
 /*
  * get a void pointer (needs to be converted) to the start of the entries in the node
  */
-void* BTLeafNode::getEntryStart()
+char* BTLeafNode::getEntryStart()
 {
-	return (void*) entryStart;
+	return (char*) buffer + sizeof(PageId);
 }
 /*
  * Get a pointer to the start of the node
  */
 PageId* BTLeafNode::getPageIDStart()
 {
-	return pageIdStart;
+	return (PageId*) buffer;
 }
 
 /* Print the contents of the nodes for debugging
  */
 void BTLeafNode::printNode()
 {
-	Entry* entry = entryStart;
+	Entry* entry = (Entry*) getEntryStart();
 	cout << "[pageId|pid,sid,key|...|pid,sid,key]" << endl;
-	cout << "[" << *pageIdStart << "|";
-	for (int i = 0; i < keyCount; i++, entry++)
+	cout << "[" << *(getPageIDStart()) << "|";
+	for (int i = 0; i < getKeyCount(); i++, entry++)
 	{
 		cout << (entry->rid).pid << "," << (entry->rid).sid << "," << entry->key;
-		if (i+1 != keyCount)
+		if (i+1 != getKeyCount())
 			cout << "|";
 	}
 	cout << "]" << endl;
@@ -295,9 +304,21 @@ RC BTNonLeafNode::write(PageId pid, PageFile& pf)
  * Return the number of keys stored in the node.
  * @return the number of keys in the node
  */
-RC BTNonLeafNode::getKeyCount()
+int BTNonLeafNode::getKeyCount()
 {
-	return keyCount;
+	int entrySize = sizeof(RecordId) + sizeof(int);
+	int count = 0;
+	char* temp = (char*) getEntryStart();
+	for(int i = 0; i <= 1008; i += entrySize)
+	{
+		int key;
+		memcpy(&key, temp, sizeof(int));
+		if (key == 0)
+			break;
+		count++;
+		temp += entrySize;
+	}
+	return count;
 }
 
 /**
@@ -321,14 +342,15 @@ RC BTNonLeafNode::setKeyCount(int number)
 RC BTNonLeafNode::insert(int key, PageId pid)
 {
 	// If the node is full, return RC_NODE_FULL
-	if (keyCount >= MAX_NON_LEAF_ENTRIES)
+	if (getKeyCount() >= MAX_NON_LEAF_ENTRIES)
 		return RC_NODE_FULL;
 
 	// This is needed for initializeRoot
-	if (keyCount == 0)
+	if (getKeyCount() == 0)
 	{
-		entryStart->key = key;
-		entryStart->pid = pid;
+		Entry* entry = (Entry*) getEntryStart();
+		entry->key = key;
+		entry->pid = pid;
 	}
 	// Regular cases. We have to shift everything to the right
 	// so that we can insert our element at the right position
@@ -336,14 +358,14 @@ RC BTNonLeafNode::insert(int key, PageId pid)
 	{
 		// get the position
 		int pos = insertPosition(key);
-		Entry* entry = entryStart + keyCount + 1;
+		Entry* entry = (Entry*) getEntryStart() + getKeyCount() + 1;
 		Entry* prevEntry = entry - 1;
 		// shift the right most pid manually
 		entry->pid = prevEntry->pid;
 		entry--;
 		prevEntry--;
 		// the position of entry that we want to insert in
-		Entry* newEntry = entryStart + pos;
+		Entry* newEntry = (Entry*) getEntryStart() + pos;
 		// shift everything to the right
 		for (; prevEntry >= newEntry; entry--, prevEntry--)
 		{
@@ -354,7 +376,6 @@ RC BTNonLeafNode::insert(int key, PageId pid)
 		newEntry->key = key;
 		newEntry->pid = pid;
 	}
-	keyCount++;
 	return 0;
 }
 
@@ -390,27 +411,27 @@ RC BTNonLeafNode::insertAndSplit(int key, PageId pid, BTNonLeafNode& sibling, in
 	}
 	// copy half of our values into sibling node
 	int siblingKeyCount = (MAX_NON_LEAF_ENTRIES - newKeyCount);
-	memcpy((Entry*)sibling.getEntryStart(), entryStart + newKeyCount, siblingKeyCount * sizeof(Entry) + sizeof(PageId) );
+	memcpy((Entry*)sibling.getEntryStart(), getEntryStart() + newKeyCount, siblingKeyCount * sizeof(Entry) + sizeof(PageId) );
 	if (insertIntoCurrent)
 	{
 		if (insert(key, pid) == RC_NODE_FULL)
 			return RC_NODE_FULL;
-		midKey = (entryStart+newKeyCount-1)->key; // needs to be moved up to parent node
+		midKey = ((Entry*) getEntryStart()+newKeyCount-1)->key; // needs to be moved up to parent node
 		// delete last entry we're moving up along with all entries we copied to sibling
-		memset((entryStart + newKeyCount-1) + sizeof(PageId), '0', siblingKeyCount+1 * sizeof(Entry) + sizeof(PageId));
+		memset((getEntryStart() + newKeyCount-1) + sizeof(PageId), '0', siblingKeyCount+1 * sizeof(Entry) + sizeof(PageId));
 	}
 	else
 	{
 		if (sibling.insert(key, pid) == RC_NODE_FULL)
 			return RC_NODE_FULL;
 		midKey = ((Entry*)sibling.getEntryStart())->key; // needs to be moved up to parent node
-		memcpy(entryStart+newKeyCount, (Entry*)sibling.getEntryStart(), sizeof(PageId)); // copy the PageId from midKey
+		memcpy(getEntryStart()+newKeyCount, (Entry*)sibling.getEntryStart(), sizeof(PageId)); // copy the PageId from midKey
 		// shift all entries to the left one entry to overwrite midKey
 		memmove((Entry*)sibling.getEntryStart(), ((Entry*)sibling.getEntryStart())+1, (siblingKeyCount-1) * sizeof(Entry) + sizeof(PageId));
 		// zero out last entry in sibling
 		memset(((Entry*)sibling.getEntryStart() + (siblingKeyCount-1)) + sizeof(PageId), '0', sizeof(Entry));
 		// clear copied entries in other node
-		memset((entryStart + newKeyCount) + sizeof(PageId), '0', siblingKeyCount * sizeof(Entry) + sizeof(PageId));
+		memset((getEntryStart() + newKeyCount) + sizeof(PageId), '0', siblingKeyCount * sizeof(Entry) + sizeof(PageId));
 		}
 	
 	return 0;
@@ -425,7 +446,7 @@ RC BTNonLeafNode::insertAndSplit(int key, PageId pid, BTNonLeafNode& sibling, in
  */
 RC BTNonLeafNode::locateChildPtr(int searchKey, PageId& pid)
 {
-	Entry* entry = entryStart;
+	Entry* entry = (Entry*) getEntryStart();
 	// if the searchKey is smaller than our first key, return the left pointer of our first key
 	if (entry->key > searchKey)
 	{
@@ -433,7 +454,7 @@ RC BTNonLeafNode::locateChildPtr(int searchKey, PageId& pid)
 		return 0;
 	}
 	// Otherwise, find the position and return the correct pid
-	for (int i = 0; i < keyCount && entry->key <= searchKey; i++, entry++) {}
+	for (int i = 0; i < getKeyCount() && entry->key <= searchKey; i++, entry++) {}
 	pid = entry->pid;
 	return 0;
 }
@@ -441,13 +462,13 @@ RC BTNonLeafNode::locateChildPtr(int searchKey, PageId& pid)
 // return the position of the largest key that is smaller than key[IN]
 int BTNonLeafNode::insertPosition(int key)
 {
-	Entry* entry = entryStart;
-	for (int i = 0; i < keyCount; i++, entry++)
+	Entry* entry = (Entry*) getEntryStart();
+	for (int i = 0; i < getKeyCount(); i++, entry++)
 	{
 		if (key < entry->key)
 			return i;
 	}
-	return keyCount;
+	return getKeyCount();
 }
 
 /*
@@ -460,11 +481,11 @@ int BTNonLeafNode::insertPosition(int key)
 RC BTNonLeafNode::initializeRoot(PageId pid1, int key, PageId pid2)
 {
 	// keyCount should be empty
-	if (keyCount != 0)
+	if (getKeyCount() != 0)
 		return RC_INVALID_CURSOR;
 	// insert our first element
 	insert(key, pid1);
-	Entry* entry = entryStart + 1;
+	Entry* entry = (Entry*) getEntryStart() + 1;
 	// insert pid
 	entry->pid = pid2;
 	return 0;
@@ -473,9 +494,9 @@ RC BTNonLeafNode::initializeRoot(PageId pid1, int key, PageId pid2)
 /*
  * get a void pointer (needs to be converted) to the start of the entries in the node
  */
-void* BTNonLeafNode::getEntryStart()
+char* BTNonLeafNode::getEntryStart()
 {
-  	return (void*) entryStart;
+	return (char*) buffer + sizeof(PageId);
 }
 
 /* Print the contents of the nodes for debugging
@@ -485,7 +506,7 @@ void BTNonLeafNode::printNode()
 	Entry* entry = entryStart;
 	cout << "[pageId,key|...|pageId]" << endl;
 	cout << "[";
-	for (int i = 0; i < keyCount; i++, entry++)
+	for (int i = 0; i < getKeyCount(); i++, entry++)
 	{
 		cout << entry->pid << "," << entry->key << "|";
 	}

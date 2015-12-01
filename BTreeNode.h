@@ -99,7 +99,7 @@ class BTLeafNode {
     /*
     * get a void pointer (needs to be converted) to the start of the entries in the node
     */
-    void* getEntryStart();
+    char* getEntryStart();
 
     /*
     * Get a pointer to the start of the node
@@ -214,7 +214,7 @@ class BTNonLeafNode {
     /*
     * get a void pointer (needs to be converted) to the start of the entries in the node
     */
-    void* getEntryStart();
+    char* getEntryStart();
 
    /**
     * Read the content of the node from the page pid in the PageFile pf.
