@@ -11,6 +11,7 @@
 #include "BTreeNode.h"
 #include <string.h>
 #include <stack>
+#include <stdio.h>
 
 using namespace std;
 
@@ -81,10 +82,10 @@ RC BTreeIndex::insert(int key, const RecordId& rid)
 {
 	if (treeHeight == 0)
 	{
-		BTLeafNode first;
-		rootPid = BTREE_BOOT_UP_PID+1;	// BTREE_BOOT_UP_PID is used to store rootPid and treeHeight
+		BTLeafNode first = BTLeafNode();
 		first.insert(key, rid);
-		RC errorMsg = first.write(BTREE_BOOT_UP_PID+1, pf);
+		rootPid = pf.endPid();
+		RC errorMsg = first.write(rootPid, pf);
 		if (errorMsg != 0)
 			return errorMsg;
 		treeHeight++;
@@ -144,11 +145,15 @@ RC BTreeIndex::insert(int key, const RecordId& rid)
 	errorMsg = leafNode.setNextNodePtr(pf.endPid());
 	if (errorMsg != 0)
 		return errorMsg;
+	// they have the correct next node ptr
+	printf("leaf node's next node ptr %d\n", leafNode.getNextNodePtr());
 
 	// save updated node in memory
 	errorMsg = leafNode.write(readPid, pf);
 	if (errorMsg != 0)
 		return errorMsg;
+	printf("readPid is %d\n", readPid);
+	// but for some reason, it is not saved
 
 	// save new node in memory
 	errorMsg = sibling.write(pf.endPid(), pf);
@@ -191,7 +196,7 @@ RC BTreeIndex::insert(int key, const RecordId& rid)
 
 		newKey = midKey;
 	}
-
+	// Don't we always end up here if pids is initially empty?
 	// if we got here, we've overflowed the root node as well
 	BTNonLeafNode newRoot;
 	errorMsg = newRoot.initializeRoot(rootPid, newKey, pf.endPid()-1);
@@ -330,11 +335,15 @@ RC BTreeIndex::readForward(IndexCursor& cursor, int& key, RecordId& rid)
   */
 RC BTreeIndex::getTotalKeyCount(int& count)
 {
+	printf("In total key count\n");
+
 	int searchKey = -99999999;
 	BTNonLeafNode nonLeafNode;
 	PageId readPid = rootPid;
 	int height = treeHeight;
 	count = 0;
+
+	printf("Height is %d\n", height);
 
 	// processing non-leaf nodes
 	while (height > 1)
@@ -367,10 +376,12 @@ RC BTreeIndex::getTotalKeyCount(int& count)
 		return leafRC;
 	count += leafNode.getKeyCount();
 	readPid = leafNode.getNextNodePtr();
-	while (readPid < pf.endPid())
+
+	while (readPid < pf.endPid() && readPid != 0)
 	{
 		// read the node from Pagefile
 		leafRC = leafNode.read(readPid, pf);
+
 		// if read error, return the error code
 		if (leafRC != 0)
 			return leafRC;

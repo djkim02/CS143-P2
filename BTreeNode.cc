@@ -2,6 +2,7 @@
 #include <math.h>
 #include <string.h>
 #include <iostream>
+#include <stdio.h>
 
 using namespace std;
 
@@ -10,7 +11,7 @@ using namespace std;
  */
 BTLeafNode::BTLeafNode()
 {
-
+	std::fill(buffer, buffer + PageFile::PAGE_SIZE, 0);
 }
 
 /*
@@ -21,6 +22,8 @@ BTLeafNode::BTLeafNode()
  */
 RC BTLeafNode::read(PageId pid, const PageFile& pf)
 {
+	printf("pid is %d\n", pid);
+	printf("next node's pid is %d\n", getNextNodePtr());
 	return pf.read(pid, buffer);
 }
     
@@ -41,17 +44,14 @@ RC BTLeafNode::write(PageId pid, PageFile& pf)
  */
 int BTLeafNode::getKeyCount()
 {
-	int entrySize = sizeof(RecordId) + sizeof(int);
 	int count = 0;
-	char* temp = (char*) getEntryStart();
-	for(int i = 0; i <= 1008; i += entrySize)
+	Entry* entry = (Entry*) getEntryStart();
+	for(int i = 0; i < MAX_LEAF_ENTRIES; i++)
 	{
-		int key;
-		memcpy(&key, temp, sizeof(int));
-		if (key == 0)
+		if (entry->key == 0)
 			break;
 		count++;
-		temp += entrySize;
+		entry++;
 	}
 	return count;
 }
@@ -88,30 +88,34 @@ RC BTLeafNode::insert(int key, const RecordId& rid)
 	{
 		Entry* entry = (Entry*) getEntryStart();
 		entry->key = key;
-		entry->rid = rid;
+		entry->rid.pid = rid.pid;
+		entry->rid.sid = rid.sid;
 	}
 	// When key is larger than any other elements, we just need to add the entry at the end
 	else if (eid + 1 == getKeyCount())
 	{
 		Entry* entry = (Entry*) getEntryStart() + eid + 1;
 		entry->key = key;
-		entry->rid = rid;
+		entry->rid.pid = rid.pid;
+		entry->rid.sid = rid.sid;
 	}
 	// Otherwise, shift everything to the right then insert the entry
 	else
-	{
+	{	
 		Entry* entry = (Entry*) getEntryStart() + getKeyCount();
 		Entry* prevEntry = entry - 1;
 		Entry* newEntry = (Entry*) getEntryStart() + eid + 1;
 		for (; prevEntry >= newEntry; entry--, prevEntry--)
 		{
 			entry->key = prevEntry->key;
-			entry->rid = prevEntry->rid;
+			entry->rid.pid = prevEntry->rid.pid;
+			entry->rid.sid = prevEntry->rid.sid;
 		}
 		newEntry->key = key;
-		newEntry->rid = rid;
+		newEntry->rid.pid = rid.pid;
+		newEntry->rid.sid = rid.sid;
 	}
-
+	printf("Key count is %d\n", getKeyCount());
 	return 0;
 }
 
@@ -149,9 +153,9 @@ RC BTLeafNode::insertAndSplit(int key, const RecordId& rid,
 	}
 	// copy half of our values into sibling node
 	int siblingKeyCount = (MAX_LEAF_ENTRIES - newKeyCount);
-	memcpy((Entry*)sibling.getEntryStart(), getEntryStart() + newKeyCount, siblingKeyCount * sizeof(Entry) );
+	memcpy((Entry*) sibling.getEntryStart(), (Entry*) getEntryStart() + newKeyCount, siblingKeyCount * sizeof(Entry));
 	// clear old memory in current node
-	memset(getEntryStart() + newKeyCount, '0', siblingKeyCount * sizeof(Entry));
+	memset((Entry*) getEntryStart() + newKeyCount, '\0', siblingKeyCount * sizeof(Entry));
 	sibling.setNextNodePtr(getNextNodePtr());
 	// current node's nextPointer needs to be set in the function that calls this during sibling node creation
 	if (insertIntoCurrent)
@@ -164,6 +168,7 @@ RC BTLeafNode::insertAndSplit(int key, const RecordId& rid,
 		if (sibling.insert(key, rid) == RC_NODE_FULL)
 			return RC_NODE_FULL;
 	}
+
 	siblingKey = ((Entry*)sibling.getEntryStart())->key; // needs to be used to set parent node pointer
 	return 0;
 }
@@ -280,8 +285,7 @@ void BTLeafNode::printNode()
 
 BTNonLeafNode::BTNonLeafNode()
 {
-	keyCount = 0;
-	entryStart = (Entry*) buffer;
+	std::fill(buffer, buffer + PageFile::PAGE_SIZE, 0);
 }
 
 RC BTNonLeafNode::read(PageId pid, const PageFile& pf)
@@ -306,17 +310,14 @@ RC BTNonLeafNode::write(PageId pid, PageFile& pf)
  */
 int BTNonLeafNode::getKeyCount()
 {
-	int entrySize = sizeof(RecordId) + sizeof(int);
 	int count = 0;
-	char* temp = (char*) getEntryStart();
-	for(int i = 0; i <= 1008; i += entrySize)
+	Entry* entry = (Entry*) getEntryStart();
+	for(int i = 0; i < MAX_NON_LEAF_ENTRIES; i++)
 	{
-		int key;
-		memcpy(&key, temp, sizeof(int));
-		if (key == 0)
+		if (entry->key == 0)
 			break;
 		count++;
-		temp += entrySize;
+		entry++;
 	}
 	return count;
 }
@@ -411,28 +412,28 @@ RC BTNonLeafNode::insertAndSplit(int key, PageId pid, BTNonLeafNode& sibling, in
 	}
 	// copy half of our values into sibling node
 	int siblingKeyCount = (MAX_NON_LEAF_ENTRIES - newKeyCount);
-	memcpy((Entry*)sibling.getEntryStart(), getEntryStart() + newKeyCount, siblingKeyCount * sizeof(Entry) + sizeof(PageId) );
+	memcpy((Entry*)sibling.getEntryStart(), (Entry*) getEntryStart() + newKeyCount, siblingKeyCount * sizeof(Entry) + sizeof(PageId) );
 	if (insertIntoCurrent)
 	{
 		if (insert(key, pid) == RC_NODE_FULL)
 			return RC_NODE_FULL;
 		midKey = ((Entry*) getEntryStart()+newKeyCount-1)->key; // needs to be moved up to parent node
 		// delete last entry we're moving up along with all entries we copied to sibling
-		memset((getEntryStart() + newKeyCount-1) + sizeof(PageId), '0', siblingKeyCount+1 * sizeof(Entry) + sizeof(PageId));
+		memset(((Entry*) getEntryStart() + newKeyCount-1) + sizeof(PageId), '\0', siblingKeyCount+1 * sizeof(Entry) + sizeof(PageId));
 	}
 	else
 	{
 		if (sibling.insert(key, pid) == RC_NODE_FULL)
 			return RC_NODE_FULL;
 		midKey = ((Entry*)sibling.getEntryStart())->key; // needs to be moved up to parent node
-		memcpy(getEntryStart()+newKeyCount, (Entry*)sibling.getEntryStart(), sizeof(PageId)); // copy the PageId from midKey
+		memcpy((Entry*)getEntryStart()+newKeyCount, (Entry*)sibling.getEntryStart(), sizeof(PageId)); // copy the PageId from midKey
 		// shift all entries to the left one entry to overwrite midKey
 		memmove((Entry*)sibling.getEntryStart(), ((Entry*)sibling.getEntryStart())+1, (siblingKeyCount-1) * sizeof(Entry) + sizeof(PageId));
 		// zero out last entry in sibling
-		memset(((Entry*)sibling.getEntryStart() + (siblingKeyCount-1)) + sizeof(PageId), '0', sizeof(Entry));
+		memset(((Entry*)sibling.getEntryStart() + (siblingKeyCount-1)) + sizeof(PageId), '\0', sizeof(Entry));
 		// clear copied entries in other node
-		memset((getEntryStart() + newKeyCount) + sizeof(PageId), '0', siblingKeyCount * sizeof(Entry) + sizeof(PageId));
-		}
+		memset(((Entry*)getEntryStart() + newKeyCount) + sizeof(PageId), '\0', siblingKeyCount * sizeof(Entry) + sizeof(PageId));
+	}
 	
 	return 0;
 }
