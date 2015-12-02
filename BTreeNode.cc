@@ -393,49 +393,59 @@ RC BTNonLeafNode::insert(int key, PageId pid)
  * @return 0 if successful. Return an error code if there is an error.
  */
 RC BTNonLeafNode::insertAndSplit(int key, PageId pid, BTNonLeafNode& sibling, int& midKey)
-{ 
-	int oldKeyCount = getKeyCount();
-	if (oldKeyCount < MAX_NON_LEAF_ENTRIES)
-		return RC_INVALID_CURSOR; // node is not full, does not need to be split
-	if (sibling.getKeyCount() != 0)
-		return RC_INVALID_CURSOR; // sibling node must be empty
-	int pos = insertPosition(key); // find relative position of where our insertion should be
-	bool insertIntoCurrent = false;
-	double halfwayEntry = ((double) (oldKeyCount-1)) /2.0;
-	int newKeyCount = 0;
-	if (((double) pos) <= halfwayEntry) // insert into current node
-	{
-		newKeyCount = ((int) floor(((double) oldKeyCount)/2.0));
-		insertIntoCurrent = true;
-	}
-	else // insert into sibling node
-	{
-		newKeyCount = ((int) ceil(((double) oldKeyCount)/2.0));
-	}
-	// copy half of our values into sibling node
-	int siblingKeyCount = (MAX_NON_LEAF_ENTRIES - newKeyCount);
-	memcpy((Entry*)sibling.getEntryStart(), (Entry*) getEntryStart() + newKeyCount, siblingKeyCount * sizeof(Entry) + sizeof(PageId) );
-	if (insertIntoCurrent)
-	{
-		if (insert(key, pid) == RC_NODE_FULL)
-			return RC_NODE_FULL;
-		midKey = ((Entry*) getEntryStart()+newKeyCount-1)->key; // needs to be moved up to parent node
-		// delete last entry we're moving up along with all entries we copied to sibling
-		memset(((Entry*) getEntryStart() + newKeyCount-1) + sizeof(PageId), '\0', siblingKeyCount+1 * sizeof(Entry) + sizeof(PageId));
-	}
-	else
-	{
-		if (sibling.insert(key, pid) == RC_NODE_FULL)
-			return RC_NODE_FULL;
-		midKey = ((Entry*)sibling.getEntryStart())->key; // needs to be moved up to parent node
-		memcpy((Entry*)getEntryStart()+newKeyCount, (Entry*)sibling.getEntryStart(), sizeof(PageId)); // copy the PageId from midKey
-		// shift all entries to the left one entry to overwrite midKey
-		memmove((Entry*)sibling.getEntryStart(), ((Entry*)sibling.getEntryStart())+1, (siblingKeyCount-1) * sizeof(Entry) + sizeof(PageId));
-		// zero out last entry in sibling
-		memset(((Entry*)sibling.getEntryStart() + (siblingKeyCount-1)) + sizeof(PageId), '\0', sizeof(Entry));
-		// clear copied entries in other node
-		memset(((Entry*)getEntryStart() + newKeyCount) + sizeof(PageId), '\0', siblingKeyCount * sizeof(Entry) + sizeof(PageId));
-	}
+{
+    int oldKeyCount = getKeyCount();
+    if (oldKeyCount < MAX_NON_LEAF_ENTRIES)
+        return RC_INVALID_CURSOR; // node is not full, does not need to be split
+    if (sibling.getKeyCount() != 0)
+        return RC_INVALID_CURSOR; // sibling node must be empty
+    int pos = insertPosition(key); // find relative position of where our insertion should be
+    bool insertIntoCurrent = false;
+    double halfwayEntry = ((double) (oldKeyCount-1)) /2.0;
+    int newKeyCount = 0;
+    if (((double) pos) <= halfwayEntry) // insert into current node
+    {
+        newKeyCount = ((int) floor(((double) oldKeyCount)/2.0));
+        insertIntoCurrent = true;
+    }
+    else // insert into sibling node
+    {
+        newKeyCount = ((int) ceil(((double) oldKeyCount)/2.0));
+    }
+    // copy half of our values into sibling node
+    int siblingKeyCount = (MAX_NON_LEAF_ENTRIES - newKeyCount);
+    memcpy((Entry*)sibling.getEntryStart(), (Entry*) getEntryStart() + newKeyCount, siblingKeyCount * sizeof(Entry) + sizeof(PageId) );
+    if (insertIntoCurrent)
+    {
+        // get the position right after the last entry and right PageId
+        int* lastEntry = ((int*)((Entry*) getEntryStart() + newKeyCount))+1;
+        // delete all entries we copied to sibling
+        memset(lastEntry, '\0', siblingKeyCount * sizeof(Entry) + sizeof(PageId));
+        if (insert(key, pid) == RC_NODE_FULL)
+            return RC_NODE_FULL;
+        newKeyCount = getKeyCount();
+        midKey = ((Entry*) getEntryStart()+newKeyCount-1)->key; // needs to be moved up to parent node
+        // delete last entry we are moving up
+        lastEntry = ((int*)((Entry*) getEntryStart() + newKeyCount-1))+1;
+        memset(lastEntry, '\0', sizeof(Entry));
+    }
+    else
+    {
+        if (sibling.insert(key, pid) == RC_NODE_FULL)
+            return RC_NODE_FULL;
+        midKey = ((Entry*)sibling.getEntryStart())->key; // needs to be moved up to parent node
+        memcpy((Entry*)getEntryStart()+newKeyCount, (Entry*)sibling.getEntryStart(), sizeof(PageId)); // copy the PageId from midKey
+        // shift all entries to the left one entry to overwrite midKey
+        memmove((Entry*)sibling.getEntryStart(), ((Entry*)sibling.getEntryStart())+1, (siblingKeyCount-1) * sizeof(Entry) + sizeof(PageId));
+        // get the position right before the last entry after its left PageId
+        int* siblingLastEntry = ((int*)((Entry*) sibling.getEntryStart() + siblingKeyCount-1))+1;
+        // zero out last entry in sibling
+        memset(siblingLastEntry, '\0', sizeof(Entry));
+        // get the position right after the last entry and right PageId
+        int* lastEntry = ((int*)((Entry*) getEntryStart() + newKeyCount))+1;
+        // clear copied entries in other node
+        memset(lastEntry, '\0', siblingKeyCount * sizeof(Entry) + sizeof(PageId));
+    }
 	
 	return 0;
 }
