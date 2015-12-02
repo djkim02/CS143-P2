@@ -12,6 +12,7 @@
 #include <string.h>
 #include <stack>
 #include <stdio.h>
+#include <iostream>
 
 using namespace std;
 
@@ -80,6 +81,8 @@ RC BTreeIndex::close()
  */
 RC BTreeIndex::insert(int key, const RecordId& rid)
 {
+	bool DEBUG = false;
+
 	if (treeHeight == 0)
 	{
 		BTLeafNode first = BTLeafNode();
@@ -145,6 +148,14 @@ RC BTreeIndex::insert(int key, const RecordId& rid)
 	if (errorMsg != 0)
 		return errorMsg;
 
+	if (DEBUG)
+	{
+		cout << "leafNode:" << endl;
+		leafNode.printNode();
+		cout << "siblingNode:" << endl;
+		sibling.printNode();
+	}
+
 	// save updated node in memory
 	errorMsg = leafNode.write(readPid, pf);
 	if (errorMsg != 0)
@@ -168,6 +179,12 @@ RC BTreeIndex::insert(int key, const RecordId& rid)
 		if (errorMsg != 0)
 			return errorMsg;
 
+		if (DEBUG)
+		{
+			cout << "parentNode pre-split:" << endl;
+			parent.printNode();
+		}
+
 		if (parent.insert(newKey, pf.endPid()-1) != RC_NODE_FULL)
 			return parent.write(parentPid, pf);
 
@@ -177,6 +194,14 @@ RC BTreeIndex::insert(int key, const RecordId& rid)
 		errorMsg = parent.insertAndSplit(newKey, pf.endPid()-1, nonLeafSibling, midKey);
 		if (errorMsg != 0)
 			return errorMsg;
+
+		if (DEBUG)
+		{
+			cout << "parentNode post-split:" << endl;
+			parent.printNode();
+			cout << "parentNode-sibling post-split:" << endl;
+			nonLeafSibling.printNode();
+		}
 
 		// save updated node in memory
 		errorMsg = parent.write(parentPid, pf);
@@ -195,6 +220,13 @@ RC BTreeIndex::insert(int key, const RecordId& rid)
 	errorMsg = newRoot.initializeRoot(rootPid, newKey, pf.endPid()-1);
 	if (errorMsg != 0)
 		return errorMsg;
+
+	if (DEBUG)
+	{
+			cout << "New Root:" << endl;
+			newRoot.printNode();
+	}
+
 	rootPid = pf.endPid();
 	errorMsg = newRoot.write(pf.endPid(), pf);
 	if (errorMsg != 0)
@@ -282,6 +314,9 @@ RC BTreeIndex::locate(int searchKey, IndexCursor& cursor)
  */
 RC BTreeIndex::readForward(IndexCursor& cursor, int& key, RecordId& rid)
 {
+	if (cursor.pid == 0)
+    		return RC_END_OF_TREE;
+    	
     BTLeafNode leafNode;
     PageId pid = cursor.pid;
     int eid = cursor.eid;
@@ -304,13 +339,15 @@ RC BTreeIndex::readForward(IndexCursor& cursor, int& key, RecordId& rid)
     eid++;
 
     // if the one that we just the last element of the node
-    if (eid >= BTLeafNode::MAX_LEAF_ENTRIES)
+    if (eid >= leafNode.getKeyCount())
     {
     	// move on to the next node
     	cursor.pid = leafNode.getNextNodePtr();
 
     	// set eid to 0, which denotes the first entry of a node
     	eid = 0;
+    	
+
     }
 
     // update cursor's eid

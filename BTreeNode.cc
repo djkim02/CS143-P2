@@ -257,11 +257,11 @@ PageId* BTLeafNode::getPageIDStart()
 void BTLeafNode::printNode()
 {
 	Entry* entry = (Entry*) getEntryStart();
-	cout << "[pageId|pid,sid,key|...|pid,sid,key]" << endl;
+	cout << "[pageId|key|...|key]" << endl;
 	cout << "[" << *(getPageIDStart()) << "|";
 	for (int i = 0; i < getKeyCount(); i++, entry++)
 	{
-		cout << (entry->rid).pid << "," << (entry->rid).sid << "," << entry->key;
+		cout << entry->key;
 		if (i+1 != getKeyCount())
 			cout << "|";
 	}
@@ -432,18 +432,30 @@ RC BTNonLeafNode::insertAndSplit(int key, PageId pid, BTNonLeafNode& sibling, in
     {
         if (sibling.insert(key, pid) == RC_NODE_FULL)
             return RC_NODE_FULL;
+        /*
         midKey = ((Entry*)sibling.getEntryStart())->key; // needs to be moved up to parent node
         memcpy((Entry*)getEntryStart()+newKeyCount, (Entry*)sibling.getEntryStart(), sizeof(PageId)); // copy the PageId from midKey
         // shift all entries to the left one entry to overwrite midKey
-        memmove((Entry*)sibling.getEntryStart(), ((Entry*)sibling.getEntryStart())+1, (siblingKeyCount-1) * sizeof(Entry) + sizeof(PageId));
+        memmove((Entry*)sibling.getEntryStart(), ((Entry*)sibling.getEntryStart())+1, (siblingKeyCount) * sizeof(Entry) + sizeof(PageId));
         // get the position right before the last entry after its left PageId
-        int* siblingLastEntry = ((int*)((Entry*) sibling.getEntryStart() + siblingKeyCount-1))+1;
+        int* siblingLastEntry = ((int*)((Entry*) sibling.getEntryStart() + siblingKeyCount+1))+1;
         // zero out last entry in sibling
         memset(siblingLastEntry, '\0', sizeof(Entry));
         // get the position right after the last entry and right PageId
         int* lastEntry = ((int*)((Entry*) getEntryStart() + newKeyCount))+1;
         // clear copied entries in other node
         memset(lastEntry, '\0', siblingKeyCount * sizeof(Entry) + sizeof(PageId));
+        */
+
+		// get the position right after the last entry and right PageId
+        int* lastEntry = ((int*)((Entry*) getEntryStart() + newKeyCount))+1;
+        // delete all entries we copied to sibling
+        memset(lastEntry, '\0', siblingKeyCount * sizeof(Entry) + sizeof(PageId));
+        midKey = ((Entry*) getEntryStart()+newKeyCount-1)->key; // needs to be moved up to parent node
+        // delete last entry we are moving up
+        lastEntry = ((int*)((Entry*) getEntryStart() + newKeyCount-1))+1;
+        memset(lastEntry, '\0', sizeof(Entry));
+
     }
 	
 	return 0;
@@ -515,7 +527,7 @@ char* BTNonLeafNode::getEntryStart()
  */
 void BTNonLeafNode::printNode()
 {
-	Entry* entry = entryStart;
+	Entry* entry = (Entry*) getEntryStart();
 	cout << "[pageId,key|...|pageId]" << endl;
 	cout << "[";
 	for (int i = 0; i < getKeyCount(); i++, entry++)

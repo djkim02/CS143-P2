@@ -154,13 +154,20 @@ RC SqlEngine::select(int attr, const string& table, const vector<SelCond>& cond)
       if (cond[i].attr == 1 && (cond[i].comp == SelCond::GT || 
                                 cond[i].comp == SelCond::GE)) {
         if (searchKey < atoi(cond[i].value))
-          searchKey = atoi(cond[i].value);
+        {
+          if (cond[i].comp == SelCond::GT)
+              searchKey = atoi(cond[i].value)+1;
+          else
+              searchKey = atoi(cond[i].value);
+        }
       }
       // set ending point for our key searching based on lowest maximum value we can end at  
       if (cond[i].attr == 1 && (cond[i].comp == SelCond::LT || 
                                 cond[i].comp == SelCond::LE)) {
         if (maxKey > atoi(cond[i].value))
           maxKey = atoi(cond[i].value);
+        if (maxKey == atoi(cond[i].value) && cond[i].comp == SelCond::LT)
+          maxKey--;
       }
       // check if we can ignore checking the value to reduce PageFile reads
       if (cond[i].attr == 2)
@@ -301,7 +308,8 @@ RC SqlEngine::select(int attr, const string& table, const vector<SelCond>& cond)
     }
     else if (isReadVal)
     {
-      while (index.readForward(cursor, searchKey, rid) == 0 && searchKey < maxKey)  {
+      while (index.readForward(cursor, searchKey, rid) == 0 && searchKey <= maxKey)  {
+        bool skip = false;
         // read the tuple
         if ((rc = rf.read(rid, searchKey, value)) < 0) {
           fprintf(stderr, "Error: while reading a tuple from table %s\n", table.c_str());
@@ -322,48 +330,55 @@ RC SqlEngine::select(int attr, const string& table, const vector<SelCond>& cond)
           // skip the tuple if any condition is not met
           switch (cond[i].comp) {
             case SelCond::EQ:
-              if (diff != 0) continue;
+              if (diff != 0) skip = true;
               break;
             case SelCond::NE:
-              if (diff == 0) continue;
+              if (diff == 0) skip = true;
               break;
             case SelCond::GT:
-              if (diff <= 0) continue;
+              if (diff <= 0) skip = true;
               break;
             case SelCond::LT:
-              if (diff >= 0) continue;
+              if (diff >= 0) skip = true;
               break;
             case SelCond::GE:
-              if (diff < 0) continue;
+              if (diff < 0) skip = true;
               break;
             case SelCond::LE:
-              if (diff > 0) continue;
+              if (diff > 0) skip = true;
               break;
+          }
+          if (skip)
+            break;
+        }
+        if (!skip)
+        {
+          // the condition is met for the tuple. 
+          // increase matching tuple counter
+          count++;
+
+          // print the tuple 
+          switch (attr) {
+          case 1:  // SELECT key
+            fprintf(stdout, "%d\n", searchKey);
+            break;
+          case 2:  // SELECT value
+            fprintf(stdout, "%s\n", value.c_str());
+            break;
+          case 3:  // SELECT *
+            fprintf(stdout, "%d '%s'\n", searchKey, value.c_str());
+            break;
           }
         }
 
-        // the condition is met for the tuple. 
-        // increase matching tuple counter
-        count++;
-
-        // print the tuple 
-        switch (attr) {
-        case 1:  // SELECT key
-          fprintf(stdout, "%d\n", searchKey);
-          break;
-        case 2:  // SELECT value
-          fprintf(stdout, "%s\n", value.c_str());
-          break;
-        case 3:  // SELECT *
-          fprintf(stdout, "%d '%s'\n", searchKey, value.c_str());
-          break;
-        }
-
       }
+      
+
     }
     else  // don't read values from PageFile unless we have a match
     {
-      while (index.readForward(cursor, searchKey, rid) == 0 && searchKey < maxKey)  {
+      while (index.readForward(cursor, searchKey, rid) == 0 && searchKey <= maxKey)  {
+        bool skip = false;
         // check the conditions on the tuple
         for (unsigned i = 0; i < cond.size(); i++) {
           // compute the difference between the tuple value and the condition value
@@ -372,47 +387,53 @@ RC SqlEngine::select(int attr, const string& table, const vector<SelCond>& cond)
           // skip the tuple if any condition is not met
           switch (cond[i].comp) {
             case SelCond::EQ:
-              if (diff != 0) continue;
+              if (diff != 0) skip = true;
               break;
             case SelCond::NE:
-              if (diff == 0) continue;
+              if (diff == 0) skip = true;
               break;
             case SelCond::GT:
-              if (diff <= 0) continue;
+              if (diff <= 0) skip = true;
               break;
             case SelCond::LT:
-              if (diff >= 0) continue;
+              if (diff >= 0) skip = true;
               break;
             case SelCond::GE:
-              if (diff < 0) continue;
+              if (diff < 0) skip = true;
               break;
             case SelCond::LE:
-              if (diff > 0) continue;
+              if (diff > 0) skip = true;
               break;
           }
+          if (skip)
+            break;
         }
 
-        // the condition is met for the tuple. 
-        // increase matching tuple counter
-        count++;
+        if (!skip)
+        {
 
-        // read the tuple
-        if ((rc = rf.read(rid, searchKey, value)) < 0) {
-          fprintf(stderr, "Error: while reading a tuple from table %s\n", table.c_str());
-          goto exit_select;
-        }
+          // the condition is met for the tuple. 
+          // increase matching tuple counter
+          count++;
 
-        // print the tuple 
-        switch (attr) {
-        case 1:  // SELECT key
-          fprintf(stdout, "%d\n", searchKey);
-          break;
-        case 2:  // SELECT value
-          fprintf(stdout, "%s\n", value.c_str());
-          break;
-        case 3:  // SELECT *
-          fprintf(stdout, "%d '%s'\n", searchKey, value.c_str());
-          break;
+          // read the tuple
+          if ((rc = rf.read(rid, searchKey, value)) < 0) {
+            fprintf(stderr, "Error: while reading a tuple from table %s\n", table.c_str());
+            goto exit_select;
+          }
+
+          // print the tuple 
+          switch (attr) {
+          case 1:  // SELECT key
+            fprintf(stdout, "%d\n", searchKey);
+            break;
+          case 2:  // SELECT value
+            fprintf(stdout, "%s\n", value.c_str());
+            break;
+          case 3:  // SELECT *
+            fprintf(stdout, "%d '%s'\n", searchKey, value.c_str());
+            break;
+          }
         }
 
       } 
