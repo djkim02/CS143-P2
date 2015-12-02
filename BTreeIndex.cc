@@ -11,6 +11,7 @@
 #include "BTreeNode.h"
 #include <string.h>
 #include <stack>
+#include <stdio.h>
 
 using namespace std;
 
@@ -81,10 +82,10 @@ RC BTreeIndex::insert(int key, const RecordId& rid)
 {
 	if (treeHeight == 0)
 	{
-		BTLeafNode first;
-		rootPid = BTREE_BOOT_UP_PID+1;	// BTREE_BOOT_UP_PID is used to store rootPid and treeHeight
+		BTLeafNode first = BTLeafNode();
 		first.insert(key, rid);
-		RC errorMsg = first.write(BTREE_BOOT_UP_PID+1, pf);
+		rootPid = pf.endPid();
+		RC errorMsg = first.write(rootPid, pf);
 		if (errorMsg != 0)
 			return errorMsg;
 		treeHeight++;
@@ -110,7 +111,6 @@ RC BTreeIndex::insert(int key, const RecordId& rid)
 
 		// locate the next node that we have to examine
 		nonLeafRC = nonLeafNode.locateChildPtr(key, readPid);
-
 		// if locate fails, return the error code
 		if (nonLeafRC != 0)
 			return nonLeafRC;
@@ -155,7 +155,6 @@ RC BTreeIndex::insert(int key, const RecordId& rid)
 	if (errorMsg != 0)
 		return errorMsg;
 
-
 	int newKey = siblingKey;
 	// continually try to insert into parent non-leaf nodes and split if overflow
 	while (!pids.empty())
@@ -191,7 +190,6 @@ RC BTreeIndex::insert(int key, const RecordId& rid)
 
 		newKey = midKey;
 	}
-
 	// if we got here, we've overflowed the root node as well
 	BTNonLeafNode newRoot;
 	errorMsg = newRoot.initializeRoot(rootPid, newKey, pf.endPid()-1);
@@ -267,13 +265,9 @@ RC BTreeIndex::locate(int searchKey, IndexCursor& cursor)
 	// Try to locate the searchKey
 	RC locateRC = leafNode.locate(searchKey, eid);
 
-	// if locate error, return the error code
-	if (locateRC != 0)
-		return locateRC;
-
 	// set the cursor and return
 	cursor.pid = readPid;
-	cursor.eid = eid;
+	cursor.eid = eid + 1;
 
     return 0;
 }
@@ -367,14 +361,17 @@ RC BTreeIndex::getTotalKeyCount(int& count)
 		return leafRC;
 	count += leafNode.getKeyCount();
 	readPid = leafNode.getNextNodePtr();
-	while (readPid < pf.endPid())
+
+	while (readPid < pf.endPid() && readPid != 0)
 	{
 		// read the node from Pagefile
 		leafRC = leafNode.read(readPid, pf);
+
 		// if read error, return the error code
 		if (leafRC != 0)
 			return leafRC;
 		count += leafNode.getKeyCount();
+		readPid = leafNode.getNextNodePtr();
 	}
 	return 0;
 }

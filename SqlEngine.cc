@@ -40,6 +40,7 @@ RC SqlEngine::run(FILE* commandline)
  */
 RC SqlEngine::select(int attr, const string& table, const vector<SelCond>& cond)
 {
+  bool DEBUG = false;
   RecordFile rf;   // RecordFile containing the table
   RecordId   rid;  // record cursor for table scanning
 
@@ -59,6 +60,8 @@ RC SqlEngine::select(int attr, const string& table, const vector<SelCond>& cond)
   if ((index.open(table + ".idx", 'r')) != 0) {
     // no index exists for this table so we must
     // scan the table file from the beginning
+    if (DEBUG)
+      cout << "No index found..." << endl;
     no_index:
     rid.pid = rid.sid = 0;
     count = 0;
@@ -74,33 +77,33 @@ RC SqlEngine::select(int attr, const string& table, const vector<SelCond>& cond)
         // compute the difference between the tuple value and the condition value
         switch (cond[i].attr) {
         case 1:
-        	diff = key - atoi(cond[i].value);
-        	break;
+          diff = key - atoi(cond[i].value);
+          break;
         case 2:
-        	diff = strcmp(value.c_str(), cond[i].value);
-        	break;
+          diff = strcmp(value.c_str(), cond[i].value);
+          break;
         }
 
         // skip the tuple if any condition is not met
         switch (cond[i].comp) {
           case SelCond::EQ:
-          	if (diff != 0) goto next_tuple;
-          	break;
+            if (diff != 0) goto next_tuple;
+            break;
           case SelCond::NE:
-          	if (diff == 0) goto next_tuple;
-          	break;
+            if (diff == 0) goto next_tuple;
+            break;
           case SelCond::GT:
-          	if (diff <= 0) goto next_tuple;
-          	break;
+            if (diff <= 0) goto next_tuple;
+            break;
           case SelCond::LT:
-          	if (diff >= 0) goto next_tuple;
-          	break;
+            if (diff >= 0) goto next_tuple;
+            break;
           case SelCond::GE:
-          	if (diff < 0) goto next_tuple;
-          	break;
+            if (diff < 0) goto next_tuple;
+            break;
           case SelCond::LE:
-          	if (diff > 0) goto next_tuple;
-          	break;
+            if (diff > 0) goto next_tuple;
+            break;
         }
       }
 
@@ -134,6 +137,8 @@ RC SqlEngine::select(int attr, const string& table, const vector<SelCond>& cond)
   }
   else {
     // use the index to speed up searching
+    if (DEBUG)
+      cout << "Found index!" << endl;
     rid.pid = rid.sid = 0;
     count = 0;
     int searchKey = -99999999;
@@ -157,12 +162,6 @@ RC SqlEngine::select(int attr, const string& table, const vector<SelCond>& cond)
         if (maxKey > atoi(cond[i].value))
           maxKey = atoi(cond[i].value);
       }
-      // immediately search for this key if there is an equality comparison
-      if (cond[i].attr == 1 && cond[i].comp == SelCond::EQ) {
-        isEqualityComparison = true;
-        searchKey = atoi(cond[i].value);
-        break;
-      }
       // check if we can ignore checking the value to reduce PageFile reads
       if (cond[i].attr == 2)
         isReadVal = true;
@@ -170,6 +169,12 @@ RC SqlEngine::select(int attr, const string& table, const vector<SelCond>& cond)
       // then we should just iterate through all elements without using the index
       if (cond[i].comp != SelCond::NE)
         isOnlyNotEqualsComparisons = false;
+      // immediately search for this key if there is an equality comparison
+      if (cond[i].attr == 1 && cond[i].comp == SelCond::EQ) {
+        isEqualityComparison = true;
+        searchKey = atoi(cond[i].value);
+        break;
+      }
     }
     // check if only count(*) to save from doing unnecessary PageFile reads
     if (cond.size() == 0 && attr == 4)
@@ -178,22 +183,54 @@ RC SqlEngine::select(int attr, const string& table, const vector<SelCond>& cond)
       isOnlyNotEqualsComparisons = false;
     }
 
+    if (DEBUG)
+    {
+      cout << "Conditions equal:" << endl;
+      cout << "isEqualityComparison: " << isEqualityComparison << endl;
+      cout << "isReadVal: " << isReadVal << endl;
+      cout << "isOnlyNotEqualsComparisons: " << isOnlyNotEqualsComparisons << endl; 
+      cout << "isOnlyCountStar: " << isOnlyCountStar << endl;
+    }
     if (isOnlyNotEqualsComparisons && !isEqualityComparison)
       goto no_index;
 
     IndexCursor cursor;
     index.locate(searchKey, cursor);
+    if (DEBUG)
+    {
+      cout << "searchKey: " << searchKey << endl;
+      cout << "cursor.pid: " << cursor.pid << endl;
+      cout << "cursor.eid: " << cursor.eid << endl;
+    }
+
     if (isEqualityComparison)
     {
         bool isEqual = true;
         RC errorMsg = index.readForward(cursor, searchKey, rid);
         if (errorMsg != 0)
           return errorMsg;
+
+        if (DEBUG)
+        {
+          cout << "searchKey: " << searchKey << endl;
+          cout << "rid.pid: " << rid.pid << endl;
+          cout << "rid.sid: " << rid.sid << endl;
+        }
         // read the tuple
         if ((rc = rf.read(rid, searchKey, value)) < 0) {
           fprintf(stderr, "Error: while reading a tuple from table %s\n", table.c_str());
           goto exit_select;
+        } 
+
+        if (DEBUG)
+        {
+          cout << "searchKey: " << searchKey << endl;
+          cout << "rid.pid: " << rid.pid << endl;
+          cout << "rid.sid: " << rid.sid << endl;
+          cout << "value: " << value << endl;
+          cout << "cond.size: " << cond.size() << endl;
         }
+
         // check the conditions on the tuple
         for (unsigned i = 0; i < cond.size(); i++) {
           // compute the difference between the tuple value and the condition value
@@ -204,6 +241,12 @@ RC SqlEngine::select(int attr, const string& table, const vector<SelCond>& cond)
           case 2:
             diff = strcmp(value.c_str(), cond[i].value);
             break;
+          }
+          if (DEBUG)
+          {
+            cout << "i: " << i << endl;
+            cout << "seachKey: " << searchKey << endl;
+            cout << "cond[i].value: " << cond[i].value << endl;
           }
 
           // skip the search if any condition is not met
