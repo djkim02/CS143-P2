@@ -111,7 +111,6 @@ RC BTreeIndex::insert(int key, const RecordId& rid)
 
 		// locate the next node that we have to examine
 		nonLeafRC = nonLeafNode.locateChildPtr(key, readPid);
-		printf("readPid after locateChildPtr %d\n", readPid);
 		// if locate fails, return the error code
 		if (nonLeafRC != 0)
 			return nonLeafRC;
@@ -145,24 +144,16 @@ RC BTreeIndex::insert(int key, const RecordId& rid)
 	errorMsg = leafNode.setNextNodePtr(pf.endPid());
 	if (errorMsg != 0)
 		return errorMsg;
-	// they have the correct next node ptr
-	printf("leaf node's next node ptr %d\n", leafNode.getNextNodePtr());
 
 	// save updated node in memory
-	printf("writing leaf node %d\n", sibling.getNextNodePtr());
 	errorMsg = leafNode.write(readPid, pf);
 	if (errorMsg != 0)
 		return errorMsg;
-	printf("readPid is %d\n", readPid);
-	// but for some reason, it is not saved
 
 	// save new node in memory
 	errorMsg = sibling.write(pf.endPid(), pf);
 	if (errorMsg != 0)
 		return errorMsg;
-
-	printf("sibling's next node ptr %d\n", sibling.getNextNodePtr());
-
 
 	int newKey = siblingKey;
 	// continually try to insert into parent non-leaf nodes and split if overflow
@@ -235,9 +226,6 @@ RC BTreeIndex::locate(int searchKey, IndexCursor& cursor)
 	BTNonLeafNode nonLeafNode;
 	PageId readPid = rootPid;
 	int height = treeHeight;
-	printf("in locate rootPid is %d\n", readPid);
-	printf("in locate height is %d\n", height);
-	printf("in locate searchKey is %d\n", searchKey);
 
 	// processing non-leaf nodes
 	while (height > 1)
@@ -262,8 +250,6 @@ RC BTreeIndex::locate(int searchKey, IndexCursor& cursor)
 
 	// if we reached here, we have gotten to our leaf node
 	BTLeafNode leafNode;
-	printf("in locate leafPid is %d\n", readPid);
-
 
 	// read the node from Pagefile
 	RC leafRC = leafNode.read(readPid, pf);
@@ -278,13 +264,10 @@ RC BTreeIndex::locate(int searchKey, IndexCursor& cursor)
 
 	// Try to locate the searchKey
 	RC locateRC = leafNode.locate(searchKey, eid);
-	printf("locateRC is %d\n", locateRC);
 
 	// set the cursor and return
 	cursor.pid = readPid;
 	cursor.eid = eid + 1;
-	printf("in locate cursor.pid is %d\n", cursor.pid);
-	printf("in locate cursor.eid is %d\n", cursor.eid);
 
     return 0;
 }
@@ -341,15 +324,11 @@ RC BTreeIndex::readForward(IndexCursor& cursor, int& key, RecordId& rid)
   */
 RC BTreeIndex::getTotalKeyCount(int& count)
 {
-	printf("In total key count\n");
-
 	int searchKey = -99999999;
 	BTNonLeafNode nonLeafNode;
 	PageId readPid = rootPid;
 	int height = treeHeight;
 	count = 0;
-
-	printf("Height is %d\n", height);
 
 	// processing non-leaf nodes
 	while (height > 1)

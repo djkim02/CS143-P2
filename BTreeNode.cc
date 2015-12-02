@@ -33,8 +33,6 @@ RC BTLeafNode::read(PageId pid, const PageFile& pf)
  */
 RC BTLeafNode::write(PageId pid, PageFile& pf)
 {
-	printf("in write, pid is %d\n", pid);
-	printf("in write, next node's pid is %d\n", getNextNodePtr());
 	return pf.write(pid, buffer);
 }
 
@@ -115,7 +113,6 @@ RC BTLeafNode::insert(int key, const RecordId& rid)
 		newEntry->rid.pid = rid.pid;
 		newEntry->rid.sid = rid.sid;
 	}
-	printf("Key count is %d\n", getKeyCount());
 	return 0;
 }
 
@@ -301,7 +298,6 @@ RC BTNonLeafNode::read(PageId pid, const PageFile& pf)
  */
 RC BTNonLeafNode::write(PageId pid, PageFile& pf)
 {
-	printf("in nl write, pid is %d\n", pid);
 	return pf.write(pid, buffer);
 }
 
@@ -377,8 +373,11 @@ RC BTNonLeafNode::insert(int key, PageId pid)
 		// insert our new key and pid
 		newEntry->key = key;
 		newEntry->pid = pid;
+
+		PageId temp = newEntry->pid;
+		newEntry->pid = (newEntry + 1)->pid;
+		(newEntry + 1)->pid = temp;
 	}
-	printf("nl Key count is %d\n", getKeyCount());
 	return 0;
 }
 
@@ -464,13 +463,11 @@ RC BTNonLeafNode::locateChildPtr(int searchKey, PageId& pid)
 	if (entry->key > searchKey)
 	{
 		pid = entry->pid;
-		printf("nl child pointer for %d is %d\n", searchKey, pid);
 		return 0;
 	}
 	// Otherwise, find the position and return the correct pid
 	for (int i = 0; i < getKeyCount() && entry->key <= searchKey; i++, entry++) {}
 	pid = entry->pid;
-	printf("nl child pointer for %d is %d\n", searchKey, pid);
 	return 0;
 }
 

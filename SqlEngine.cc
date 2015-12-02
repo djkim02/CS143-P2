@@ -40,7 +40,7 @@ RC SqlEngine::run(FILE* commandline)
  */
 RC SqlEngine::select(int attr, const string& table, const vector<SelCond>& cond)
 {
-  bool DEBUG = true;
+  bool DEBUG = false;
   RecordFile rf;   // RecordFile containing the table
   RecordId   rid;  // record cursor for table scanning
 
